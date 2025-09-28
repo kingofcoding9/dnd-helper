@@ -1,0 +1,981 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dungeon Master Helper</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=Libre+Baskerville&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Libre Baskerville', serif;
+            background-color: #1a1a1a;
+            color: #f3f3f3;
+        }
+        .font-title {
+            font-family: 'IM Fell English SC', serif;
+        }
+        .card {
+            background-color: #2c2c2c;
+            border: 1px solid #444;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        .input-field {
+            background-color: #383838;
+            border: 1px solid #555;
+            color: #f3f3f3;
+            border-radius: 4px;
+        }
+        .btn {
+            background-color: #8b0000;
+            color: #f3f3f3;
+            border: 1px solid #a52a2a;
+            transition: all 0.2s ease-in-out;
+        }
+        .btn:hover {
+            background-color: #a52a2a;
+            box-shadow: 0 0 10px #ff4500;
+        }
+        .output-box {
+            background-color: #222;
+            border: 1px solid #444;
+            min-height: 150px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .turn-active {
+            background-color: #a52a2a !important; /* Brighter red */
+            color: #fff;
+            border-left: 6px solid #ff4500;
+            transform: scale(1.02);
+            box-shadow: 0 0 12px rgba(255, 69, 0, 0.6);
+            transition: all 0.2s ease-in-out;
+        }
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #8b0000;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .tab-btn {
+            background-color: #383838;
+            border: 1px solid #555;
+        }
+        .tab-btn-active {
+            background-color: #8b0000;
+            border-color: #a52a2a;
+        }
+        #map-board, #combat-map-board {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 1/1;
+            overflow: hidden;
+        }
+        #map-grid, #combat-map-grid {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-image: linear-gradient(rgba(255,255,255,0.2) 2px, transparent 2px), linear-gradient(90deg, rgba(255,255,255,0.2) 2px, transparent 2px);
+            background-size: 5% 5%;
+            pointer-events: none;
+        }
+        .token {
+            position: absolute;
+            width: 4%;
+            height: 4%;
+            cursor: grab;
+            user-select: none;
+            filter: drop-shadow(0 2px 2px rgba(0,0,0,0.7));
+        }
+        .token svg {
+            width: 100%;
+            height: 100%;
+        }
+        .token.player svg { fill: #3b82f6; stroke: #fff; stroke-width: 2px; }
+        .token.enemy svg { fill: #dc2626; stroke: #fff; stroke-width: 2px; }
+        .token.dragging { cursor: grabbing; z-index: 1000; filter: drop-shadow(0 5px 15px rgba(0,0,0,0.9));}
+        .modal-backdrop {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: rgba(0,0,0,0.7);
+            z-index: 50;
+        }
+        .dice-bowl {
+            background-color: #1a1a1a;
+            border: 2px dashed #444;
+            min-height: 200px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: #f3f3f3;
+        }
+        .dice-btn {
+            background-color: #383838;
+        }
+        .dice-btn:hover {
+            background-color: #555;
+        }
+        #tokenTooltip {
+            position: fixed;
+            background-color: rgba(0,0,0,0.8);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 14px;
+            pointer-events: none;
+            z-index: 2000;
+            transition: opacity 0.2s;
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+
+    <header class="text-center mb-8">
+        <h1 class="font-title text-5xl md:text-7xl text-red-700 tracking-wider">Dungeon Master Helper</h1>
+        <p class="text-gray-400">Your AI-powered companion for epic adventures.</p>
+    </header>
+
+    <!-- Tabs -->
+    <div class="flex flex-wrap justify-center mb-8 border-b border-gray-700">
+        <button id="tab-session" class="tab-btn font-title text-xl py-2 px-6 rounded-t-lg">Session</button>
+        <button id="tab-combat" class="tab-btn font-title text-xl py-2 px-6 rounded-t-lg hidden">Combat</button>
+        <button id="tab-map" class="tab-btn font-title text-xl py-2 px-6 rounded-t-lg">Map</button>
+        <button id="tab-dice" class="tab-btn font-title text-xl py-2 px-6 rounded-t-lg">Dice</button>
+        <button id="tab-generators" class="tab-btn font-title text-xl py-2 px-6 rounded-t-lg">Generators</button>
+        <button id="tab-characters" class="tab-btn font-title text-xl py-2 px-6 rounded-t-lg">Characters</button>
+    </div>
+
+    <main>
+        <!-- Session Tab Content -->
+        <div id="content-session" class="space-y-8">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div class="space-y-8">
+                    <section class="card p-6">
+                        <h2 class="font-title text-3xl border-b-2 border-red-700 pb-2 mb-4">Random Event Generator</h2>
+                        <input type="text" id="eventEnvironment" class="input-field w-full p-2 mb-4" placeholder="Environment (e.g., Forest, City)">
+                        <button id="generateEventBtn" class="btn font-title w-full py-2 rounded-md">Generate Random Event</button>
+                        <div id="eventOutput" class="output-box mt-4 p-4 rounded-md"></div>
+                    </section>
+                    <section class="card p-6">
+                        <h2 class="font-title text-3xl border-b-2 border-red-700 pb-2 mb-4">Combat Generator</h2>
+                        <input type="text" id="combatEnvironment" class="input-field w-full p-2 mb-4" placeholder="Environment (e.g., Forest, Cave)">
+                        <button id="generateCombatBtn" class="btn font-title w-full py-2 rounded-md">Generate Combat Encounter</button>
+                        <div id="combatOutput" class="output-box mt-4 p-4 rounded-md"></div>
+                        <div id="monsterSelection" class="mt-4 hidden">
+                            <h3 class="font-title text-2xl mb-2">Select Monsters:</h3>
+                            <div id="monsterCheckboxContainer" class="space-y-2"></div>
+                             <button id="startCombatBtn" class="btn font-title w-full py-2 rounded-md mt-4">Start Combat</button>
+                        </div>
+                    </section>
+                </div>
+                <div class="space-y-8">
+                     <section class="card p-6">
+                        <h2 class="font-title text-3xl border-b-2 border-red-700 pb-2 mb-4">Current Party</h2>
+                        <ul id="partyList" class="space-y-2 mb-4 text-gray-300"></ul>
+                        <p id="party-empty-msg">Add characters from the 'Characters' tab.</p>
+                    </section>
+                     <section class="card p-6">
+                        <h2 class="font-title text-3xl border-b-2 border-red-700 pb-2 mb-4">XP Calculator</h2>
+                        <input type="number" id="totalXp" class="input-field w-full p-2 mb-4" placeholder="Total XP from Encounter">
+                        <button id="calculateXpBtn" class="btn font-title w-full py-2 rounded-md">Distribute XP</button>
+                        <div id="xpOutput" class="output-box mt-4 p-4 rounded-md"></div>
+                    </section>
+                </div>
+            </div>
+        </div>
+
+        <!-- Combat Tab Content -->
+        <div id="content-combat" class="hidden">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <div class="lg:col-span-2">
+                    <section class="card p-6">
+                        <div class="flex justify-between items-center border-b-2 border-red-700 pb-2 mb-4">
+                            <h2 class="font-title text-3xl">Battle Map</h2>
+                            <div class="flex items-center space-x-4">
+                                <label class="flex items-center space-x-2 cursor-pointer"><input type="checkbox" id="combat-toggle-grid" class="input-field" checked><span>Grid</span></label>
+                                <label class="flex items-center space-x-2 cursor-pointer"><input type="checkbox" id="combat-toggle-tokens" class="input-field" checked><span>Tokens</span></label>
+                            </div>
+                        </div>
+                        <div id="combat-map-board" class="bg-black rounded-md">
+                            <img id="combat-map-image" class="w-full h-full object-cover" alt="Combat Map">
+                            <div id="combat-map-grid"></div>
+                            <div id="combat-token-container"></div>
+                        </div>
+                    </section>
+                </div>
+                <div class="lg:col-span-1 space-y-8">
+                    <section class="card p-6">
+                        <h2 class="font-title text-3xl border-b-2 border-red-700 pb-2 mb-4">Turn Tracker</h2>
+                        <ul id="turnOrder" class="space-y-2 mb-4 max-h-48 overflow-y-auto"></ul>
+                        <div class="flex gap-2">
+                            <button id="nextTurnBtn" class="btn font-title flex-grow py-2 rounded-md">Next Turn</button>
+                            <button id="endCombatBtn" class="btn font-title flex-grow py-2 rounded-md bg-gray-700 hover:bg-gray-600">End Combat</button>
+                        </div>
+                    </section>
+                     <section class="card p-6">
+                        <h2 class="font-title text-3xl border-b-2 border-red-700 pb-2 mb-4">Active Creature</h2>
+                        <div id="statBlockOutput" class="output-box p-4 rounded-md max-h-96 overflow-y-auto"></div>
+                    </section>
+                </div>
+            </div>
+        </div>
+
+        <!-- Map Tab Content (for non-combat maps) -->
+        <div id="content-map" class="hidden">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <div class="lg:col-span-1">
+                    <section class="card p-6">
+                        <h2 class="font-title text-3xl border-b-2 border-red-700 pb-2 mb-4">World/Town Map Generator</h2>
+                        <input type="text" id="mapPrompt" class="input-field w-full p-2 mb-4" placeholder="e.g., A bustling port city market">
+                        <p class="text-sm text-gray-400 mb-4">Describe the map you want to generate (e.g., "A world map with a central sea", "A town square with a fountain").</p>
+                        <button id="generateMapImageBtn" class="btn font-title w-full py-2 rounded-md">Generate Map Image</button>
+                    </section>
+                </div>
+                <div class="lg:col-span-2">
+                     <section class="card p-6">
+                        <div class="flex justify-between items-center border-b-2 border-red-700 pb-2 mb-4">
+                            <h2 class="font-title text-3xl">Generated Map</h2>
+                             <div class="flex items-center space-x-4">
+                                <label class="flex items-center space-x-2 cursor-pointer"><input type="checkbox" id="map-toggle-grid" class="input-field"><span>Grid</span></label>
+                                <label class="flex items-center space-x-2 cursor-pointer"><input type="checkbox" id="map-toggle-tokens" class="input-field" checked><span>Player Tokens</span></label>
+                            </div>
+                        </div>
+                        <div id="map-board" class="bg-black rounded-md">
+                            <img id="mapImageOutput" class="w-full h-full object-cover" alt="Generated Map">
+                            <div id="map-grid" class="hidden"></div>
+                            <div id="map-token-container"></div>
+                        </div>
+                    </section>
+                </div>
+            </div>
+        </div>
+
+
+        <!-- Dice Tab Content -->
+        <div id="content-dice" class="hidden">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <div class="lg:col-span-2">
+                    <section class="card p-6">
+                        <h2 class="font-title text-3xl border-b-2 border-red-700 pb-2 mb-4">Dice Roller</h2>
+                        <div class="dice-bowl rounded-lg mb-4 p-4">
+                            <span id="diceTotal" class="font-title text-7xl">0</span>
+                            <span id="diceBreakdown" class="text-lg text-gray-400 mt-2 h-6"></span>
+                        </div>
+                        <div id="dice-buttons" class="grid grid-cols-2 md:grid-cols-3 gap-4">
+                             <div class="flex items-center space-x-2">
+                                <input type="number" id="qty-d20" value="1" min="1" max="100" class="input-field w-16 p-2 text-center rounded-md">
+                                <button data-die="20" class="btn dice-btn flex-grow py-3 rounded-md font-title text-xl">D20</button>
+                            </div>
+                             <div class="flex items-center space-x-2">
+                                <input type="number" id="qty-d12" value="1" min="1" max="100" class="input-field w-16 p-2 text-center rounded-md">
+                                <button data-die="12" class="btn dice-btn flex-grow py-3 rounded-md font-title text-xl">D12</button>
+                            </div>
+                             <div class="flex items-center space-x-2">
+                                <input type="number" id="qty-d10" value="1" min="1" max="100" class="input-field w-16 p-2 text-center rounded-md">
+                                <button data-die="10" class="btn dice-btn flex-grow py-3 rounded-md font-title text-xl">D10</button>
+                            </div>
+                             <div class="flex items-center space-x-2">
+                                <input type="number" id="qty-d100" value="1" min="1" max="100" class="input-field w-16 p-2 text-center rounded-md">
+                                <button data-die="100" class="btn dice-btn flex-grow py-3 rounded-md font-title text-xl">D100</button>
+                            </div>
+                             <div class="flex items-center space-x-2">
+                                <input type="number" id="qty-d6" value="1" min="1" max="100" class="input-field w-16 p-2 text-center rounded-md">
+                                <button data-die="6" class="btn dice-btn flex-grow py-3 rounded-md font-title text-xl">D6</button>
+                            </div>
+                             <div class="flex items-center space-x-2">
+                                <input type="number" id="qty-d4" value="1" min="1" max="100" class="input-field w-16 p-2 text-center rounded-md">
+                                <button data-die="4" class="btn dice-btn flex-grow py-3 rounded-md font-title text-xl">D4</button>
+                            </div>
+                             <div class="flex items-center space-x-2 col-span-2 md:col-span-1 md:col-start-2">
+                                <input type="number" id="qty-d3" value="1" min="1" max="100" class="input-field w-16 p-2 text-center rounded-md">
+                                <button data-die="3" class="btn dice-btn flex-grow py-3 rounded-md font-title text-xl">D3</button>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+                <div>
+                    <section class="card p-6">
+                        <h2 class="font-title text-3xl border-b-2 border-red-700 pb-2 mb-4">Roll Log</h2>
+                        <ul id="rollLog" class="space-y-2 text-gray-400"></ul>
+                    </section>
+                </div>
+            </div>
+        </div>
+
+        <!-- Generators Tab Content -->
+        <div id="content-generators" class="hidden">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                 <section id="loot-generator" class="card p-6">
+                    <h2 class="font-title text-3xl border-b-2 border-red-700 pb-2 mb-4">Loot Generator</h2>
+                    <input type="text" id="lootPlayerClass" class="input-field w-full p-2 mb-4" placeholder="Player Class (e.g., Fighter)">
+                    <button id="generateLootBtn" class="btn font-title w-full py-2 rounded-md">Generate Loot for Party</button>
+                    <div id="lootOutput" class="output-box mt-4 p-4 rounded-md"></div>
+                </section>
+                <section id="shop-generator" class="card p-6">
+                    <h2 class="font-title text-3xl border-b-2 border-red-700 pb-2 mb-4">Shop Generator</h2>
+                    <select id="shopType" class="input-field w-full p-2 mb-4">
+                        <option>Blacksmith</option>
+                        <option>Brewery</option>
+                        <option>General Goods</option>
+                        <option>Mercantile</option>
+                        <option>Alchemist</option>
+                        <option>Magic Shop</option>
+                    </select>
+                    <button id="generateShopBtn" class="btn font-title w-full py-2 rounded-md">Generate Shop Inventory</button>
+                    <div id="shopOutput" class="output-box mt-4 p-4 rounded-md"></div>
+                </section>
+            </div>
+        </div>
+
+        <!-- Characters Tab Content -->
+        <div id="content-characters" class="hidden">
+             <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <section id="character-storage" class="card p-6">
+                    <h2 class="font-title text-3xl border-b-2 border-red-700 pb-2 mb-4">Character Manager</h2>
+                    <div class="space-y-3 mb-4">
+                        <input type="text" id="charName" class="input-field w-full p-2" placeholder="Character Name">
+                        <input type="text" id="charClass" class="input-field w-full p-2" placeholder="Class & Level (e.g., Barbarian 5)">
+                        <textarea id="charNotes" rows="4" class="input-field w-full p-2" placeholder="Character Notes, Stats, Inventory..."></textarea>
+                    </div>
+                    <button id="saveCharBtn" class="btn font-title w-full py-2 rounded-md mb-2">Save Character</button>
+                </section>
+                <section id="saved-characters-list" class="card p-6">
+                     <h2 class="font-title text-3xl border-b-2 border-red-700 pb-2 mb-4">Saved Characters</h2>
+                     <div id="savedCharsContainer"></div>
+                </section>
+            </div>
+        </div>
+    </main>
+
+    <!-- Combat Scene Modal -->
+    <div id="combatSceneModal" class="modal-backdrop items-center justify-center hidden">
+        <div class="card p-8 rounded-lg w-full max-w-xl space-y-4">
+            <h2 class="font-title text-4xl">Describe the Combat Scene</h2>
+            <p class="text-gray-400">Describe the environment where the combat will take place. This will generate the battle map.</p>
+            <textarea id="combatScenePrompt" class="input-field w-full p-2" rows="4" placeholder="e.g., A crumbling stone altar in the center of a dark, swampy clearing. Strange glyphs glow faintly on the stone."></textarea>
+            <div class="flex gap-4">
+                <button id="generateCombatMapBtn" class="btn font-title flex-grow py-2 rounded-md">Generate Map & Start</button>
+                <button id="cancelCombatMapBtn" class="btn font-title flex-grow py-2 rounded-md bg-gray-600 hover:bg-gray-500">Cancel</button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="tokenTooltip" class="hidden opacity-0"></div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // --- STATE MANAGEMENT ---
+            let turnOrder = [];
+            let currentTurnIndex = -1;
+            let characters = {};
+            let party = [];
+            let lastGeneratedEnemies = [];
+            let monsterStatBlocks = {};
+            let rollHistory = [];
+            let tokens = []; // { id, x, y, type, element }
+            let activeToken = null;
+            let offsetX, offsetY;
+
+            // --- DOM ELEMENT REFERENCES ---
+            const mainContent = {
+                session: document.getElementById('content-session'),
+                combat: document.getElementById('content-combat'),
+                map: document.getElementById('content-map'),
+                dice: document.getElementById('content-dice'),
+                generators: document.getElementById('content-generators'),
+                characters: document.getElementById('content-characters'),
+            };
+            const TABS = {
+                session: document.getElementById('tab-session'),
+                combat: document.getElementById('tab-combat'),
+                map: document.getElementById('tab-map'),
+                dice: document.getElementById('tab-dice'),
+                generators: document.getElementById('tab-generators'),
+                characters: document.getElementById('tab-characters'),
+            };
+
+            const lootPlayerClassInput = document.getElementById('lootPlayerClass');
+            const generateLootBtn = document.getElementById('generateLootBtn');
+            const lootOutput = document.getElementById('lootOutput');
+
+            const shopTypeSelect = document.getElementById('shopType');
+            const generateShopBtn = document.getElementById('generateShopBtn');
+            const shopOutput = document.getElementById('shopOutput');
+
+            const eventEnvironmentInput = document.getElementById('eventEnvironment');
+            const generateEventBtn = document.getElementById('generateEventBtn');
+            const eventOutput = document.getElementById('eventOutput');
+
+            const combatEnvironmentInput = document.getElementById('combatEnvironment');
+            const generateCombatBtn = document.getElementById('generateCombatBtn');
+            const combatOutput = document.getElementById('combatOutput');
+            const monsterSelection = document.getElementById('monsterSelection');
+            const monsterCheckboxContainer = document.getElementById('monsterCheckboxContainer');
+            const startCombatBtn = document.getElementById('startCombatBtn');
+            
+            const totalXpInput = document.getElementById('totalXp');
+            const calculateXpBtn = document.getElementById('calculateXpBtn');
+            const xpOutput = document.getElementById('xpOutput');
+
+            const turnOrderList = document.getElementById('turnOrder');
+            const nextTurnBtn = document.getElementById('nextTurnBtn');
+            const endCombatBtn = document.getElementById('endCombatBtn');
+            const statBlockOutput = document.getElementById('statBlockOutput');
+            
+            const partyList = document.getElementById('partyList');
+            const partyEmptyMsg = document.getElementById('party-empty-msg');
+            
+            const charNameInput = document.getElementById('charName');
+            const charClassInput = document.getElementById('charClass');
+            const charNotesInput = document.getElementById('charNotes');
+            const saveCharBtn = document.getElementById('saveCharBtn');
+            const savedCharsContainer = document.getElementById('savedCharsContainer');
+
+            const diceButtonsContainer = document.getElementById('dice-buttons');
+            const diceTotalEl = document.getElementById('diceTotal');
+            const diceBreakdownEl = document.getElementById('diceBreakdown');
+            const rollLogEl = document.getElementById('rollLog');
+            
+            const mapPromptInput = document.getElementById('mapPrompt');
+            const generateMapImageBtn = document.getElementById('generateMapImageBtn');
+            const mapBoard = document.getElementById('map-board');
+            const mapImageOutput = document.getElementById('mapImageOutput');
+            const mapGrid = document.getElementById('map-grid');
+            const mapTokenContainer = document.getElementById('map-token-container');
+            const mapToggleGrid = document.getElementById('map-toggle-grid');
+            const mapToggleTokens = document.getElementById('map-toggle-tokens');
+            
+            const combatMapBoard = document.getElementById('combat-map-board');
+            const combatMapImage = document.getElementById('combat-map-image');
+            const combatMapGrid = document.getElementById('combat-map-grid');
+            const combatTokenContainer = document.getElementById('combat-token-container');
+            const combatToggleGrid = document.getElementById('combat-toggle-grid');
+            const combatToggleTokens = document.getElementById('combat-toggle-tokens');
+
+            const combatSceneModal = document.getElementById('combatSceneModal');
+            const combatScenePrompt = document.getElementById('combatScenePrompt');
+            const generateCombatMapBtn = document.getElementById('generateCombatMapBtn');
+            const cancelCombatMapBtn = document.getElementById('cancelCombatMapBtn');
+            const tokenTooltip = document.getElementById('tokenTooltip');
+            
+            // --- SYSTEM PROMPT ---
+            const systemPrompt = `You are an expert Dungeon Master assistant for D&D 5e. Use accurate rules from Dungeons & Dragons 5th Edition to generate content based on user prompts. Respond only with the requested generation (e.g., loot lists, shop inventories, events, encounters, or stat blocks) in markdown format for readability. Do not add extra commentary unless asked. Keep responses concise, balanced for the party's level and size, and flavorful.`;
+            
+            // --- TAB SWITCHING LOGIC ---
+            const switchTab = (activeTabKey) => {
+                Object.values(mainContent).forEach(c => c.classList.add('hidden'));
+                Object.values(TABS).forEach(t => t.classList.remove('tab-btn-active'));
+                
+                mainContent[activeTabKey].classList.remove('hidden');
+                TABS[activeTabKey].classList.add('tab-btn-active');
+            };
+            
+            Object.keys(TABS).forEach(key => {
+                TABS[key].addEventListener('click', () => switchTab(key));
+            });
+            
+            // --- TOKEN & MAP LOGIC ---
+            const renderTokens = (container, showPlayers, showEnemies) => {
+                container.innerHTML = '';
+                tokens.forEach(token => {
+                    if ((token.type === 'player' && showPlayers) || (token.type === 'enemy' && showEnemies)) {
+                        token.element.style.left = `${token.x}%`;
+                        token.element.style.top = `${token.y}%`;
+                        container.appendChild(token.element);
+                    }
+                });
+            };
+
+            const createToken = (id, type) => {
+                const tokenElement = document.createElement('div');
+                tokenElement.className = `token ${type}`;
+                
+                const playerSVG = `<svg viewBox="0 0 100 100"><circle cx="50" cy="30" r="20"/><path d="M15 95 C 15 70, 85 70, 85 95 Z"/></svg>`;
+                const enemySVG = `<svg viewBox="0 0 100 100"><path d="M10 50 C10 10, 90 10, 90 50 C90 90, 60 90, 50 70 C40 90, 10 90, 10 50 Z M25 40 a5,5 0 1,1 -10,0 a5,5 0 1,1 10,0 M75 40 a5,5 0 1,1 -10,0 a5,5 0 1,1 10,0"/></svg>`;
+                tokenElement.innerHTML = type === 'player' ? playerSVG : enemySVG;
+
+                // Snap to grid for initial position
+                const gridSize = 5;
+                const tokenSize = 4;
+                const offset = (gridSize - tokenSize) / 2;
+                const gridX = Math.floor(Math.random() * 20); // 0-19
+                const gridY = Math.floor(Math.random() * 20);
+                const x = (gridX * gridSize) + offset;
+                const y = (gridY * gridSize) + offset;
+
+                const token = { id, x, y, type, element: tokenElement };
+
+                tokenElement.addEventListener('mousedown', (e) => {
+                    e.preventDefault();
+                    activeToken = token;
+                    tokenElement.classList.add('dragging');
+                    offsetX = e.clientX - tokenElement.getBoundingClientRect().left;
+                    offsetY = e.clientY - tokenElement.getBoundingClientRect().top;
+                });
+                
+                tokenElement.addEventListener('mouseover', (e) => {
+                    tokenTooltip.textContent = token.id;
+                    tokenTooltip.classList.remove('hidden');
+                    tokenTooltip.classList.add('opacity-100');
+                    tokenTooltip.style.left = `${e.clientX + 15}px`;
+                    tokenTooltip.style.top = `${e.clientY}px`;
+                });
+                
+                tokenElement.addEventListener('mouseout', () => {
+                    tokenTooltip.classList.add('hidden');
+                    tokenTooltip.classList.remove('opacity-100');
+                });
+
+                return token;
+            };
+
+            document.addEventListener('mousemove', (e) => {
+                if (!activeToken) return;
+
+                const board = activeToken.element.parentElement.parentElement;
+                const boardRect = board.getBoundingClientRect();
+                let x = e.clientX - boardRect.left - offsetX;
+                let y = e.clientY - boardRect.top - offsetY;
+
+                let xPercent = (x / boardRect.width) * 100;
+                let yPercent = (y / boardRect.height) * 100;
+                
+                const gridSize = 5;
+                const tokenSize = 4;
+                const offset = (gridSize - tokenSize) / 2;
+                const gridX = Math.floor(xPercent / gridSize);
+                const gridY = Math.floor(yPercent / gridSize);
+                const snappedX = (gridX * gridSize) + offset;
+                const snappedY = (gridY * gridSize) + offset;
+
+                activeToken.x = Math.max(offset, Math.min(snappedX, 100 - tokenSize));
+                activeToken.y = Math.max(offset, Math.min(snappedY, 100 - tokenSize));
+
+                activeToken.element.style.left = `${activeToken.x}%`;
+                activeToken.element.style.top = `${activeToken.y}%`;
+                
+                // update tooltip position
+                tokenTooltip.style.left = `${e.clientX + 15}px`;
+                tokenTooltip.style.top = `${e.clientY}px`;
+            });
+
+            document.addEventListener('mouseup', () => {
+                if (activeToken) {
+                    activeToken.element.classList.remove('dragging');
+                    activeToken = null;
+                }
+            });
+            
+            mapToggleGrid.addEventListener('change', () => mapGrid.classList.toggle('hidden'));
+            combatToggleGrid.addEventListener('change', () => combatMapGrid.classList.toggle('hidden'));
+            
+            mapToggleTokens.addEventListener('change', () => {
+                renderTokens(mapTokenContainer, mapToggleTokens.checked, false)
+            });
+
+            combatToggleTokens.addEventListener('change', () => {
+                 renderTokens(combatTokenContainer, combatToggleTokens.checked, combatToggleTokens.checked)
+            });
+            
+
+            // --- IMAGE GENERATION ---
+            const generateImageAPI = async (prompt) => {
+                const apiKey = "AIzaSyDKRFfQlTs4H33C7_ArQymSeGVlEPUxrZE";
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${apiKey}`;
+                
+                const stylePrompt = "A detailed top-down battle map for D&D, fantasy, digital painting, playable game asset, high fantasy cartography. The perspective is directly overhead, like a blueprint. IMPORTANT: The map must be empty and contain absolutely no creatures, people, characters, animals, or monsters. Only generate the environment and terrain.";
+                const fullPrompt = `${stylePrompt} Scene: ${prompt}`;
+
+                const payload = { instances: [{ prompt: fullPrompt }], parameters: { "sampleCount": 1 } };
+                try {
+                    const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                    if (!response.ok) { throw new Error(`Image API call failed with status: ${response.status}`); }
+                    const result = await response.json();
+                    return result.predictions[0].bytesBase64Encoded;
+                } catch (error) {
+                    console.error("Error calling Image API:", error);
+                    return null;
+                }
+            };
+            
+            generateMapImageBtn.addEventListener('click', async () => {
+                const userPrompt = mapPromptInput.value || 'a generic dungeon room';
+                mapImageOutput.src = '';
+                const container = mapBoard;
+                container.innerHTML = '<div class="flex justify-center items-center h-full"><div class="loader"></div></div>';
+                
+                const base64Data = await generateImageAPI(userPrompt);
+                
+                container.innerHTML = ''; 
+                container.appendChild(mapImageOutput);
+                container.appendChild(mapGrid);
+                container.appendChild(mapTokenContainer);
+                
+                if (base64Data) {
+                    mapImageOutput.src = `data:image/png;base64,${base64Data}`;
+                    tokens = party.map(p => createToken(p.name, 'player'));
+                    renderTokens(mapTokenContainer, mapToggleTokens.checked, false);
+                } else {
+                    container.innerHTML = '<p class="text-red-500">Failed to generate map image.</p>';
+                }
+            });
+            
+            // --- DICE ROLLER LOGIC ---
+            const rollDice = (sides) => {
+                if (sides === 3) return Math.floor(Math.random() * 3) + 1;
+                return Math.floor(Math.random() * sides) + 1;
+            };
+
+            const updateRollLog = () => {
+                rollLogEl.innerHTML = '';
+                rollHistory.slice(-8).reverse().forEach(roll => {
+                    const li = document.createElement('li');
+                    li.textContent = roll.quantity > 1 ? `${roll.quantity}D${roll.sides}: ${roll.total} (${roll.results.join(', ')})` : `D${roll.sides}: ${roll.total}`;
+                    li.className = 'border-b border-gray-700 pb-1';
+                    rollLogEl.appendChild(li);
+                });
+            };
+
+            diceButtonsContainer.addEventListener('click', (e) => {
+                const button = e.target.closest('button[data-die]');
+                if (button) {
+                    const sides = parseInt(button.dataset.die);
+                    const qtyInput = document.getElementById(`qty-d${sides}`);
+                    const quantity = parseInt(qtyInput.value) || 1;
+                    let results = [];
+                    let total = 0;
+                    for(let i = 0; i < quantity; i++) {
+                        const roll = rollDice(sides);
+                        results.push(roll);
+                        total += roll;
+                    }
+                    diceTotalEl.textContent = total;
+                    diceBreakdownEl.textContent = quantity > 1 ? results.join(' + ') : '';
+                    rollHistory.push({ sides, quantity, results, total });
+                    updateRollLog();
+                }
+            });
+
+            // --- TEXT GENERATION API ---
+            const callGeminiAPI = async (prompt) => {
+                const apiKey = "AIzaSyDKRFfQlTs4H33C7_ArQymSeGVlEPUxrZE";
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+                const payload = {
+                    contents: [{ parts: [{ text: prompt }] }],
+                    systemInstruction: { parts: [{ text: systemPrompt }] },
+                };
+                try {
+                    const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                    if (!response.ok) { throw new Error(`API call failed with status: ${response.status}`); }
+                    const result = await response.json();
+                    return result.candidates[0].content.parts[0].text;
+                } catch (error) {
+                    console.error("Error calling Gemini API:", error);
+                    return "There was an error communicating with the AI.";
+                }
+            };
+
+            // --- CHARACTER & PARTY LOGIC ---
+            const loadCharactersFromStorage = () => {
+                const storedChars = localStorage.getItem('dmHelperCharacters');
+                if (storedChars) characters = JSON.parse(storedChars);
+                const storedParty = localStorage.getItem('dmHelperParty');
+                if (storedParty) party = JSON.parse(storedParty);
+                renderSavedCharacters();
+                renderPartyList();
+            };
+
+            const renderSavedCharacters = () => {
+                savedCharsContainer.innerHTML = '';
+                Object.values(characters).forEach(char => {
+                    const isPartyMember = party.some(p => p.name === char.name);
+                    const charCard = document.createElement('div');
+                    charCard.className = 'p-4 border border-gray-600 rounded mb-2 flex justify-between items-center';
+                    charCard.innerHTML = `<div><p class="font-bold">${char.name} - ${char.class}</p><p class="text-sm text-gray-400">${char.notes.substring(0,40)}...</p></div>`;
+                    
+                    const btnGroup = document.createElement('div');
+                    btnGroup.className = 'flex gap-2';
+                    const partyBtn = document.createElement('button');
+                    partyBtn.textContent = isPartyMember ? 'Remove' : 'Add to Party';
+                    partyBtn.className = `btn text-sm py-1 px-2 rounded ${isPartyMember ? 'bg-gray-600' : ''}`;
+                    partyBtn.onclick = () => togglePartyMember(char);
+                    
+                    const loadBtn = document.createElement('button');
+                    loadBtn.textContent = 'Load';
+                    loadBtn.className = 'btn text-sm py-1 px-2 rounded';
+                    loadBtn.onclick = () => { charNameInput.value = char.name; charClassInput.value = char.class; charNotesInput.value = char.notes; };
+
+                    const deleteBtn = document.createElement('button');
+                    deleteBtn.textContent = 'X';
+                    deleteBtn.className = 'btn text-sm py-1 px-2 rounded';
+                    deleteBtn.onclick = () => deleteCharacter(char.name);
+
+                    btnGroup.appendChild(partyBtn); btnGroup.appendChild(loadBtn); btnGroup.appendChild(deleteBtn);
+                    charCard.appendChild(btnGroup);
+                    savedCharsContainer.appendChild(charCard);
+                });
+            };
+
+            const renderPartyList = () => {
+                partyList.innerHTML = '';
+                if (party.length > 0) {
+                    partyEmptyMsg.classList.add('hidden');
+                    party.forEach(char => {
+                        const li = document.createElement('li');
+                        li.textContent = `${char.name} (${char.class})`;
+                        partyList.appendChild(li);
+                    });
+                } else {
+                    partyEmptyMsg.classList.remove('hidden');
+                }
+            };
+
+            const togglePartyMember = (char) => {
+                const index = party.findIndex(p => p.name === char.name);
+                if (index > -1) party.splice(index, 1); else party.push(char);
+                localStorage.setItem('dmHelperParty', JSON.stringify(party));
+                renderSavedCharacters();
+                renderPartyList();
+            };
+
+            const saveCharacter = () => {
+                const name = charNameInput.value.trim();
+                if (!name) return;
+                characters[name] = { name: name, class: charClassInput.value, notes: charNotesInput.value };
+                localStorage.setItem('dmHelperCharacters', JSON.stringify(characters));
+                renderSavedCharacters();
+                charNameInput.value = charClassInput.value = charNotesInput.value = '';
+            };
+
+            const deleteCharacter = (name) => {
+                if (confirm(`Are you sure you want to delete ${name}?`)) {
+                    delete characters[name];
+                    party = party.filter(p => p.name !== name);
+                    localStorage.setItem('dmHelperCharacters', JSON.stringify(characters));
+                    localStorage.setItem('dmHelperParty', JSON.stringify(party));
+                    renderSavedCharacters();
+                    renderPartyList();
+                }
+            };
+            saveCharBtn.addEventListener('click', saveCharacter);
+            
+            const getAveragePartyLevel = () => {
+                if (party.length === 0) return 1;
+                const totalLevels = party.reduce((sum, char) => sum + (parseInt(char.class.match(/\d+/)?.[0]) || 1), 0);
+                return Math.max(1, Math.round(totalLevels / party.length));
+            };
+            
+            const parseMarkdown = (text) => text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\*(.*?)\*/g, '<em>$1</em>').replace(/^- (.*?)(\n|$)/gm, '<li>$1</li>').replace(/(<li>.*?<\/li>)/gs, '<ul>$1</ul>');
+
+            calculateXpBtn.addEventListener('click', () => {
+                const totalXp = parseInt(totalXpInput.value);
+                if (isNaN(totalXp) || totalXp <= 0) { xpOutput.textContent = "Please enter a valid total XP."; return; }
+                if (party.length === 0) { xpOutput.textContent = "Add players to the party to distribute XP."; return; }
+                const xpPerPlayer = Math.floor(totalXp / party.length);
+                xpOutput.textContent = `Total XP: ${totalXp}\nParty Members: ${party.length}\n---\n` + party.map(p => `${p.name} receives ${xpPerPlayer} XP.`).join('\n');
+            });
+
+            generateLootBtn.addEventListener('click', async () => {
+                const playerClass = lootPlayerClassInput.value || 'adventurer';
+                const playerLevel = getAveragePartyLevel();
+                lootOutput.innerHTML = '<div class="loader"></div>';
+                const prompt = `Generate D&D 5e loot for a level ${playerLevel} ${playerClass}.`;
+                const response = await callGeminiAPI(prompt);
+                lootOutput.innerHTML = parseMarkdown(response);
+            });
+
+            generateShopBtn.addEventListener('click', async () => {
+                const shopType = shopTypeSelect.value;
+                shopOutput.innerHTML = '<div class="loader"></div>';
+                const prompt = `Generate a D&D 5e inventory for a ${shopType} shop.`;
+                const response = await callGeminiAPI(prompt);
+                shopOutput.innerHTML = parseMarkdown(response);
+            });
+
+            generateEventBtn.addEventListener('click', async () => {
+                const environment = eventEnvironmentInput.value || 'any';
+                const level = getAveragePartyLevel();
+                eventOutput.innerHTML = '<div class="loader"></div>';
+                const prompt = `Generate a random, non-combat D&D event for a level ${level} party in a ${environment} environment.`;
+                const response = await callGeminiAPI(prompt);
+                eventOutput.innerHTML = parseMarkdown(response);
+            });
+
+            generateCombatBtn.addEventListener('click', async () => {
+                const environment = combatEnvironmentInput.value || 'generic';
+                const level = getAveragePartyLevel();
+                if (party.length === 0) { combatOutput.textContent = "Please add characters to your party first."; return; }
+                combatOutput.innerHTML = '<div class="loader"></div>';
+                monsterSelection.classList.add('hidden');
+                const prompt = `Generate a D&D 5e combat encounter for a party of ${party.length} level ${level} players in a ${environment} environment. List the enemies on one line at the end, like 'Enemies: 2x Goblin, 1x Hobgoblin'.`;
+                const response = await callGeminiAPI(prompt);
+                combatOutput.innerHTML = parseMarkdown(response);
+
+                const enemyLine = response.split('\n').find(line => line.toLowerCase().startsWith("enemies:"));
+                if (enemyLine) {
+                    lastGeneratedEnemies = [];
+                    monsterCheckboxContainer.innerHTML = '';
+                    const enemyStr = enemyLine.replace(/enemies:/i, "").trim();
+                    const enemyGroups = enemyStr.split(', ');
+                    
+                    enemyGroups.forEach(group => {
+                        const [count, ...nameParts] = group.split('x ');
+                        const name = nameParts.join('x ').trim();
+                        lastGeneratedEnemies.push({ name, count: parseInt(count) });
+
+                        const label = document.createElement('label');
+                        label.className = 'flex items-center space-x-2';
+                        label.innerHTML = `<input type="checkbox" data-name="${name}" data-count="${count}" class="input-field" checked> <span>${group}</span>`;
+                        monsterCheckboxContainer.appendChild(label);
+                    });
+                    monsterSelection.classList.remove('hidden');
+                }
+            });
+
+            startCombatBtn.addEventListener('click', () => {
+                const environment = combatEnvironmentInput.value || 'the generated encounter setting';
+                combatScenePrompt.value = `A battle map for the following encounter: ${combatOutput.innerText.split('\n')[0]}. The environment is a ${environment}.`;
+                combatSceneModal.style.display = 'flex';
+            });
+            
+            cancelCombatMapBtn.addEventListener('click', () => combatSceneModal.style.display = 'none');
+
+            generateCombatMapBtn.addEventListener('click', async () => {
+                const scenePrompt = combatScenePrompt.value;
+                if (!scenePrompt) return;
+
+                const btn = generateCombatMapBtn;
+                btn.disabled = true;
+                btn.innerHTML = '<div class="loader mx-auto"></div>';
+
+                const base64Data = await generateImageAPI(scenePrompt);
+                
+                if (base64Data) {
+                    initiateCombat(`data:image/png;base64,${base64Data}`);
+                } else {
+                    alert("Failed to generate combat map. Starting combat without a map.");
+                    initiateCombat(null);
+                }
+
+                combatSceneModal.style.display = 'none';
+                btn.disabled = false;
+                btn.innerHTML = 'Generate Map & Start';
+            });
+
+            const initiateCombat = async (mapImageUrl) => {
+                 turnOrder = party.map(p => ({ name: p.name, type: 'player'}));
+                 tokens = party.map(p => createToken(p.name, 'player'));
+                
+                const selectedCheckboxes = monsterCheckboxContainer.querySelectorAll('input[type="checkbox"]:checked');
+                const monsterTypesToFetch = new Set();
+                
+                selectedCheckboxes.forEach(box => {
+                    const name = box.dataset.name;
+                    const count = parseInt(box.dataset.count);
+                    monsterTypesToFetch.add(name);
+                    for(let i=0; i < count; i++) {
+                        const enemyName = `${name} ${i + 1}`;
+                        turnOrder.push({ name: enemyName, type: 'enemy', baseType: name });
+                        tokens.push(createToken(enemyName, 'enemy'));
+                    }
+                });
+                
+                if (turnOrder.length === party.length) { return; }
+                
+                for (let i = turnOrder.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [turnOrder[i], turnOrder[j]] = [turnOrder[j], turnOrder[i]];
+                }
+
+                TABS.combat.classList.remove('hidden');
+                switchTab('combat');
+                
+                if (mapImageUrl) {
+                    combatMapImage.src = mapImageUrl;
+                } else {
+                    combatMapImage.src = '';
+                }
+                renderTokens(combatTokenContainer, combatToggleTokens.checked, combatToggleTokens.checked);
+                renderTurnOrder();
+
+                for (const type of monsterTypesToFetch) {
+                    if (!monsterStatBlocks[type]) {
+                        const prompt = `Provide a D&D 5e stat block for a ${type}.`;
+                        monsterStatBlocks[type] = await callGeminiAPI(prompt);
+                    }
+                }
+                
+                currentTurnIndex = -1;
+                nextTurnBtn.click();
+            };
+            
+            const renderTurnOrder = () => {
+                turnOrderList.innerHTML = '';
+                turnOrder.forEach((participant, index) => {
+                    const li = document.createElement('li');
+                    li.textContent = participant.name;
+                    li.className = `p-2 rounded cursor-pointer ${participant.type === 'player' ? 'bg-blue-900' : 'bg-red-900'} border border-gray-600 flex justify-between items-center transition-transform duration-200`;
+                    if (index === currentTurnIndex) li.classList.add('turn-active');
+                    li.onclick = () => {
+                        currentTurnIndex = index;
+                        renderTurnOrder();
+                        updateStatBlock();
+                    };
+                    turnOrderList.appendChild(li);
+});
+            };
+
+            const updateStatBlock = () => {
+                statBlockOutput.innerHTML = '';
+                if (currentTurnIndex === -1 || !turnOrder[currentTurnIndex]) return;
+
+                const participant = turnOrder[currentTurnIndex];
+                if (participant.type === 'enemy') {
+                    const statBlock = monsterStatBlocks[participant.baseType];
+                    if (statBlock) {
+                        statBlockOutput.innerHTML = parseMarkdown(statBlock);
+                    } else {
+                        statBlockOutput.innerHTML = `<div class="loader mx-auto"></div>`;
+                    }
+                } else {
+                    const player = party.find(p => p.name === participant.name);
+                    statBlockOutput.innerHTML = `<div class="p-4"><h3 class="text-2xl font-bold">${player.name}</h3><p>${player.class}</p><hr class="my-2 border-gray-600"><p>${player.notes}</p></div>`;
+                }
+            };
+            
+            nextTurnBtn.addEventListener('click', () => {
+                if (turnOrder.length > 0) {
+                    currentTurnIndex = (currentTurnIndex + 1) % turnOrder.length;
+                    renderTurnOrder();
+                    updateStatBlock();
+                }
+            });
+
+            endCombatBtn.addEventListener('click', () => {
+                TABS.combat.classList.add('hidden');
+                switchTab('session');
+                currentTurnIndex = -1;
+                turnOrder = [];
+                lastGeneratedEnemies = [];
+                monsterStatBlocks = {};
+                monsterSelection.classList.add('hidden');
+                combatOutput.innerHTML = '';
+                eventOutput.innerHTML = '';
+                statBlockOutput.innerHTML = `Select a creature from the turn tracker or press 'Next Turn'.`;
+            });
+
+             // --- INITIAL LOAD ---
+            loadCharactersFromStorage();
+            switchTab('session');
+        });
+    </script>
+</body>
+</html>
+
