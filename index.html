@@ -1,3 +1,4 @@
+```html
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -6,6 +7,10 @@
     <title>Dungeon Master Helper</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=Libre+Baskerville&display=swap" rel="stylesheet">
+    <!-- Firebase Libraries -->
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
     <style>
         body {
             font-family: 'Libre Baskerville', serif;
@@ -36,6 +41,17 @@
         .btn:hover {
             background-color: #a52a2a;
             box-shadow: 0 0 10px #ff4500;
+        }
+        .btn:disabled {
+            background-color: #555;
+            cursor: not-allowed;
+        }
+        .btn-google {
+            background-color: #4285F4;
+            border-color: #4285F4;
+        }
+        .btn-google:hover {
+            background-color: #5a95f5;
         }
         .output-box {
             background-color: #222;
@@ -105,6 +121,7 @@
             top: 0; left: 0; right: 0; bottom: 0;
             background-color: rgba(0,0,0,0.7);
             z-index: 50;
+            display: flex; /* Changed for easier centering */
         }
         .dice-bowl {
             background-color: #1a1a1a;
@@ -133,23 +150,58 @@
             z-index: 2000;
             transition: opacity 0.2s;
         }
+        .library-item {
+            border: 1px solid #444;
+            transition: all 0.2s ease-in-out;
+            cursor: pointer;
+        }
+        .library-item:hover {
+            border-color: #a52a2a;
+        }
+        .folder-item {
+            background-color: #383838;
+        }
+        .breadcrumb-link {
+            cursor: pointer;
+            text-decoration: underline;
+        }
+        .creator-step {
+            display: none;
+        }
+        .creator-step.active {
+            display: block;
+        }
+        .checkbox-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 0.5rem;
+        }
     </style>
 </head>
 <body class="p-4 md:p-8">
 
-    <header class="text-center mb-8">
+    <header class="text-center mb-8 relative">
         <h1 class="font-title text-5xl md:text-7xl text-red-700 tracking-wider">Dungeon Master Helper</h1>
         <p class="text-gray-400">Your AI-powered companion for epic adventures.</p>
+        <div id="auth-container" class="absolute top-0 right-0 p-4">
+            <button id="login-btn" class="btn btn-google font-title py-2 px-4 rounded-md">Login with Google</button>
+            <div id="user-info" class="hidden items-center">
+                <span id="user-name" class="mr-4"></span>
+                <button id="logout-btn" class="btn font-title py-2 px-4 rounded-md">Logout</button>
+            </div>
+        </div>
     </header>
 
     <!-- Tabs -->
     <div class="flex flex-wrap justify-center mb-8 border-b border-gray-700">
         <button id="tab-session" class="tab-btn font-title text-xl py-2 px-6 rounded-t-lg">Session</button>
+        <button id="tab-creator" class="tab-btn font-title text-xl py-2 px-6 rounded-t-lg">Creator</button>
         <button id="tab-combat" class="tab-btn font-title text-xl py-2 px-6 rounded-t-lg hidden">Combat</button>
         <button id="tab-map" class="tab-btn font-title text-xl py-2 px-6 rounded-t-lg">Map</button>
         <button id="tab-dice" class="tab-btn font-title text-xl py-2 px-6 rounded-t-lg">Dice</button>
         <button id="tab-generators" class="tab-btn font-title text-xl py-2 px-6 rounded-t-lg">Generators</button>
         <button id="tab-characters" class="tab-btn font-title text-xl py-2 px-6 rounded-t-lg">Characters</button>
+        <button id="tab-account" class="tab-btn font-title text-xl py-2 px-6 rounded-t-lg">Account</button>
     </div>
 
     <main>
@@ -191,6 +243,130 @@
             </div>
         </div>
 
+        <!-- Character Creator Tab -->
+        <div id="content-creator" class="hidden">
+            <section class="card p-6">
+                <h2 class="font-title text-3xl border-b-2 border-red-700 pb-2 mb-4">Character Creator</h2>
+                <div id="character-creator-container">
+                    <!-- Step 1: Race and Subrace -->
+                    <div id="creator-step-1" class="creator-step active">
+                        <h3 class="font-title text-2xl mb-2">Step 1: Choose Your Race</h3>
+                        <select id="race-select" class="input-field w-full p-2 mb-4"></select>
+                        <select id="subrace-select" class="input-field w-full p-2 mb-4 hidden"></select>
+                        <p id="race-description" class="text-gray-400 mb-4"></p>
+                        <button id="creator-next-1" class="btn font-title py-2 px-4 rounded-md">Next</button>
+                    </div>
+
+                    <!-- Step 2: Class and Subclass/Origin -->
+                    <div id="creator-step-2" class="creator-step">
+                        <h3 class="font-title text-2xl mb-2">Step 2: Choose Your Class</h3>
+                        <select id="class-select" class="input-field w-full p-2 mb-4"></select>
+                        <select id="subclass-select" class="input-field w-full p-2 mb-4 hidden"></select>
+                        <p id="class-description" class="text-gray-400 mb-4"></p>
+                        <button id="creator-prev-2" class="btn font-title py-2 px-4 rounded-md bg-gray-600 hover:bg-gray-500">Previous</button>
+                        <button id="creator-next-2" class="btn font-title py-2 px-4 rounded-md">Next</button>
+                    </div>
+
+                    <!-- Step 3: Ability Scores -->
+                    <div id="creator-step-3" class="creator-step">
+                        <h3 class="font-title text-2xl mb-2">Step 3: Determine Ability Scores</h3>
+                        <p>You have <span id="points-remaining">27</span> points to spend. (Point-Buy System)</p>
+                        <div id="ability-scores" class="grid grid-cols-2 md:grid-cols-3 gap-4 my-4"></div>
+                        <button id="creator-prev-3" class="btn font-title py-2 px-4 rounded-md bg-gray-600 hover:bg-gray-500">Previous</button>
+                        <button id="creator-next-3" class="btn font-title py-2 px-4 rounded-md">Next</button>
+                    </div>
+
+                    <!-- Step 4: Background -->
+                    <div id="creator-step-4" class="creator-step">
+                        <h3 class="font-title text-2xl mb-2">Step 4: Choose Background</h3>
+                        <select id="background-select" class="input-field w-full p-2 mb-4"></select>
+                        <p id="background-description" class="text-gray-400 mb-4"></p>
+                        <button id="creator-prev-4" class="btn font-title py-2 px-4 rounded-md bg-gray-600 hover:bg-gray-500">Previous</button>
+                        <button id="creator-next-4" class="btn font-title py-2 px-4 rounded-md">Next</button>
+                    </div>
+
+                    <!-- Step 5: Description & Details -->
+                    <div id="creator-step-5" class="creator-step">
+                        <h3 class="font-title text-2xl mb-2">Step 5: Describe Your Character</h3>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="font-bold">Name</label>
+                                <input type="text" id="creator-char-name" class="input-field w-full p-2" placeholder="Character Name">
+                            </div>
+                            <div>
+                                <label class="font-bold">Alignment</label>
+                                <select id="alignment-select" class="input-field w-full p-2"></select>
+                            </div>
+                            <div>
+                                <label class="font-bold">Age</label>
+                                <input type="number" id="age-input" class="input-field w-full p-2" placeholder="Age">
+                            </div>
+                            <div>
+                                <label class="font-bold">Height</label>
+                                <input type="text" id="height-input" class="input-field w-full p-2" placeholder="Height (e.g., 5'10'')">
+                            </div>
+                            <div>
+                                <label class="font-bold">Weight</label>
+                                <input type="text" id="weight-input" class="input-field w-full p-2" placeholder="Weight (e.g., 180 lbs)">
+                            </div>
+                            <div>
+                                <label class="font-bold">Eyes</label>
+                                <input type="text" id="eyes-input" class="input-field w-full p-2" placeholder="Eye Color">
+                            </div>
+                            <div>
+                                <label class="font-bold">Skin</label>
+                                <input type="text" id="skin-input" class="input-field w-full p-2" placeholder="Skin Tone">
+                            </div>
+                            <div>
+                                <label class="font-bold">Hair</label>
+                                <input type="text" id="hair-input" class="input-field w-full p-2" placeholder="Hair Description">
+                            </div>
+                        </div>
+                        <div id="personality-traits-container" class="mt-4"></div>
+                        <div id="languages-container" class="mt-4"></div>
+                        <textarea id="backstory-input" class="input-field w-full p-2 mt-4" rows="4" placeholder="Character Backstory..."></textarea>
+                        <button id="creator-prev-5" class="btn font-title py-2 px-4 rounded-md bg-gray-600 hover:bg-gray-500 mt-4">Previous</button>
+                        <button id="creator-next-5" class="btn font-title py-2 px-4 rounded-md mt-4">Next</button>
+                    </div>
+
+                    <!-- Step 6: Proficiencies, Feats & Abilities -->
+                    <div id="creator-step-6" class="creator-step">
+                        <h3 class="font-title text-2xl mb-2">Step 6: Proficiencies, Feats & Abilities</h3>
+                        <div id="proficiencies-container" class="mb-4 max-h-96 overflow-y-auto"></div>
+                        <div id="feats-container" class="mb-4"></div>
+                        <div id="feats-abilities-container" class="mb-4"></div>
+                        <button id="creator-prev-6" class="btn font-title py-2 px-4 rounded-md bg-gray-600 hover:bg-gray-500">Previous</button>
+                        <button id="creator-next-6" class="btn font-title py-2 px-4 rounded-md">Next</button>
+                    </div>
+
+                    <!-- Step 7: Equipment -->
+                    <div id="creator-step-7" class="creator-step">
+                        <h3 class="font-title text-2xl mb-2">Step 7: Choose Equipment</h3>
+                        <div id="equipment-container" class="mb-4 max-h-96 overflow-y-auto"></div>
+                        <button id="creator-prev-7" class="btn font-title py-2 px-4 rounded-md bg-gray-600 hover:bg-gray-500">Previous</button>
+                        <button id="creator-next-7" class="btn font-title py-2 px-4 rounded-md">Next</button>
+                    </div>
+
+                     <!-- Step 8: Spells -->
+                    <div id="creator-step-8" class="creator-step">
+                        <h3 class="font-title text-2xl mb-2">Step 8: Choose Your Spells</h3>
+                        <div id="spells-container" class="space-y-4 max-h-96 overflow-y-auto"></div>
+                        <button id="creator-prev-8" class="btn font-title py-2 px-4 rounded-md bg-gray-600 hover:bg-gray-500">Previous</button>
+                        <button id="creator-next-8" class="btn font-title py-2 px-4 rounded-md">Next</button>
+                    </div>
+                    
+                    <!-- Step 9: Review -->
+                    <div id="creator-step-9" class="creator-step">
+                        <h3 class="font-title text-2xl mb-2">Step 9: Review Your Character</h3>
+                        <div id="review-output" class="output-box p-4 rounded-md mb-4 max-h-[60vh] overflow-y-auto"></div>
+                        <button id="creator-prev-9" class="btn font-title py-2 px-4 rounded-md bg-gray-600 hover:bg-gray-500">Previous</button>
+                        <button id="finish-character-btn" class="btn font-title py-2 px-4 rounded-md">Save Character</button>
+                    </div>
+                </div>
+            </section>
+        </div>
+
+
         <!-- Combat Tab Content -->
         <div id="content-combat" class="hidden">
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -229,31 +405,46 @@
 
         <!-- Map Tab Content (for non-combat maps) -->
         <div id="content-map" class="hidden">
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                <div class="lg:col-span-1">
-                    <section class="card p-6">
-                        <h2 class="font-title text-3xl border-b-2 border-red-700 pb-2 mb-4">World/Town Map Generator</h2>
-                        <input type="text" id="mapPrompt" class="input-field w-full p-2 mb-4" placeholder="e.g., A bustling port city market">
-                        <p class="text-sm text-gray-400 mb-4">Describe the map you want to generate (e.g., "A world map with a central sea", "A town square with a fountain").</p>
-                        <button id="generateMapImageBtn" class="btn font-title w-full py-2 rounded-md">Generate Map Image</button>
-                    </section>
-                </div>
-                <div class="lg:col-span-2">
-                     <section class="card p-6">
-                        <div class="flex justify-between items-center border-b-2 border-red-700 pb-2 mb-4">
-                            <h2 class="font-title text-3xl">Generated Map</h2>
-                             <div class="flex items-center space-x-4">
-                                <label class="flex items-center space-x-2 cursor-pointer"><input type="checkbox" id="map-toggle-grid" class="input-field"><span>Grid</span></label>
-                                <label class="flex items-center space-x-2 cursor-pointer"><input type="checkbox" id="map-toggle-tokens" class="input-field" checked><span>Player Tokens</span></label>
+            <div class="space-y-8">
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    <div class="lg:col-span-1">
+                        <section class="card p-6">
+                            <h2 class="font-title text-3xl border-b-2 border-red-700 pb-2 mb-4">World/Town Map Generator</h2>
+                            <input type="text" id="mapPrompt" class="input-field w-full p-2 mb-4" placeholder="e.g., A bustling port city market">
+                            <button id="generateMapImageBtn" class="btn font-title w-full py-2 rounded-md">Generate Map Image</button>
+                             <div id="mapActions" class="hidden flex gap-2 mt-4">
+                                <button id="saveMapBtn" class="btn font-title flex-grow py-2 rounded-md bg-blue-700 hover:bg-blue-600">Save</button>
+                                <button id="downloadMapBtn" class="btn font-title flex-grow py-2 rounded-md bg-green-700 hover:bg-green-600">Download</button>
                             </div>
-                        </div>
-                        <div id="map-board" class="bg-black rounded-md">
-                            <img id="mapImageOutput" class="w-full h-full object-cover" alt="Generated Map">
-                            <div id="map-grid" class="hidden"></div>
-                            <div id="map-token-container"></div>
-                        </div>
-                    </section>
+                        </section>
+                    </div>
+                    <div class="lg:col-span-2">
+                         <section class="card p-6">
+                            <div class="flex justify-between items-center border-b-2 border-red-700 pb-2 mb-4">
+                                <h2 class="font-title text-3xl">Generated Map</h2>
+                                 <div class="flex items-center space-x-4">
+                                    <label class="flex items-center space-x-2 cursor-pointer"><input type="checkbox" id="map-toggle-grid" class="input-field"><span>Grid</span></label>
+                                    <label class="flex items-center space-x-2 cursor-pointer"><input type="checkbox" id="map-toggle-tokens" class="input-field" checked><span>Player Tokens</span></label>
+                                </div>
+                            </div>
+                            <div id="map-board" class="bg-black rounded-md">
+                                <img id="mapImageOutput" class="w-full h-full object-cover" alt="Generated Map">
+                                <div id="map-grid" class="hidden"></div>
+                                <div id="map-token-container"></div>
+                            </div>
+                        </section>
+                    </div>
                 </div>
+                 <section class="card p-6">
+                    <div class="flex justify-between items-center border-b-2 border-red-700 pb-2 mb-4">
+                        <h2 class="font-title text-3xl">Map Library</h2>
+                        <button id="newFolderBtn" class="btn text-sm py-1 px-3 rounded-md">+ New Folder</button>
+                    </div>
+                    <div id="mapBreadcrumbs" class="text-gray-400 mb-4"></div>
+                    <div id="mapLibraryContainer" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 min-h-[200px]">
+                        <!-- Saved maps will be injected here -->
+                    </div>
+                </section>
             </div>
         </div>
 
@@ -352,6 +543,27 @@
                 </section>
             </div>
         </div>
+
+        <!-- Account Tab Content -->
+        <div id="content-account" class="hidden">
+            <section class="card p-6">
+                <h2 class="font-title text-3xl border-b-2 border-red-700 pb-2 mb-4">Account Information</h2>
+                <div id="account-info">
+                    <p>Status: <span id="subscription-status" class="font-bold">Free Tier</span></p>
+                    <p id="api-calls-container">API Calls Remaining: <span id="api-calls-remaining">10</span>/10</p>
+                </div>
+                <div id="subscription-options" class="mt-8">
+                    <h3 class="font-title text-2xl mb-4">Upgrade to Premium</h3>
+                    <div class="card p-6 bg-gray-800">
+                        <h4 class="font-title text-xl">Monthly Subscription</h4>
+                        <p class="text-gray-400 mb-4">Unlock unlimited AI generations for a whole month!</p>
+                        <p class="text-3xl font-bold mb-4">$4.99 / Month</p>
+                        <button id="subscribe-btn" class="btn font-title w-full py-2 rounded-md">Subscribe Now</button>
+                    </div>
+                </div>
+            </section>
+        </div>
+
     </main>
 
     <!-- Combat Scene Modal -->
@@ -367,11 +579,51 @@
         </div>
     </div>
     
+    <!-- Custom Modal -->
+    <div id="customModal" class="modal-backdrop items-center justify-center hidden">
+        <div class="card p-8 rounded-lg w-full max-w-md space-y-4 text-center">
+            <p id="customModalMessage" class="text-lg"></p>
+            <div id="customModalButtons" class="flex gap-4 justify-center">
+                <!-- Buttons are injected here by JavaScript -->
+            </div>
+        </div>
+    </div>
+    
+    <!-- Custom Prompt Modal -->
+    <div id="customPromptModal" class="modal-backdrop items-center justify-center hidden">
+        <div class="card p-8 rounded-lg w-full max-w-md space-y-4">
+            <p id="customPromptMessage" class="text-lg"></p>
+            <input type="text" id="customPromptInput" class="input-field w-full p-2">
+            <div id="customPromptButtons" class="flex gap-4 justify-center">
+                 <!-- Buttons are injected here by JavaScript -->
+            </div>
+        </div>
+    </div>
+
+
     <div id="tokenTooltip" class="hidden opacity-0"></div>
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
+            // --- Firebase Configuration ---
+            const firebaseConfig = {
+                apiKey: "YOUR_API_KEY",
+                authDomain: "YOUR_AUTH_DOMAIN",
+                projectId: "YOUR_PROJECT_ID",
+                storageBucket: "YOUR_STORAGE_BUCKET",
+                messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+                appId: "YOUR_APP_ID"
+            };
+
+            // --- Initialize Firebase ---
+            firebase.initializeApp(firebaseConfig);
+            const auth = firebase.auth();
+            const db = firebase.firestore();
+
             // --- STATE MANAGEMENT ---
+            let user = null;
+            let subscriptionActive = false;
+            let apiCalls = 10;
             let turnOrder = [];
             let currentTurnIndex = -1;
             let characters = {};
@@ -382,23 +634,39 @@
             let tokens = []; // { id, x, y, type, element }
             let activeToken = null;
             let offsetX, offsetY;
+            let mapLibrary = { folders: {}, maps: [] };
+            let currentMapPath = [];
+            let currentMapData = null;
+            let creatorData = {};
+
 
             // --- DOM ELEMENT REFERENCES ---
+            const authContainer = document.getElementById('auth-container');
+            const loginBtn = document.getElementById('login-btn');
+            const logoutBtn = document.getElementById('logout-btn');
+            const userInfo = document.getElementById('user-info');
+            const userName = document.getElementById('user-name');
+
             const mainContent = {
                 session: document.getElementById('content-session'),
+                creator: document.getElementById('content-creator'),
                 combat: document.getElementById('content-combat'),
                 map: document.getElementById('content-map'),
                 dice: document.getElementById('content-dice'),
                 generators: document.getElementById('content-generators'),
                 characters: document.getElementById('content-characters'),
+                account: document.getElementById('content-account'),
+
             };
             const TABS = {
                 session: document.getElementById('tab-session'),
+                creator: document.getElementById('tab-creator'),
                 combat: document.getElementById('tab-combat'),
                 map: document.getElementById('tab-map'),
                 dice: document.getElementById('tab-dice'),
                 generators: document.getElementById('tab-generators'),
                 characters: document.getElementById('tab-characters'),
+                account: document.getElementById('tab-account'),
             };
 
             const lootPlayerClassInput = document.getElementById('lootPlayerClass');
@@ -445,12 +713,18 @@
             
             const mapPromptInput = document.getElementById('mapPrompt');
             const generateMapImageBtn = document.getElementById('generateMapImageBtn');
+            const mapActions = document.getElementById('mapActions');
+            const saveMapBtn = document.getElementById('saveMapBtn');
+            const downloadMapBtn = document.getElementById('downloadMapBtn');
             const mapBoard = document.getElementById('map-board');
             const mapImageOutput = document.getElementById('mapImageOutput');
             const mapGrid = document.getElementById('map-grid');
             const mapTokenContainer = document.getElementById('map-token-container');
             const mapToggleGrid = document.getElementById('map-toggle-grid');
             const mapToggleTokens = document.getElementById('map-toggle-tokens');
+            const mapLibraryContainer = document.getElementById('mapLibraryContainer');
+            const mapBreadcrumbs = document.getElementById('mapBreadcrumbs');
+            const newFolderBtn = document.getElementById('newFolderBtn');
             
             const combatMapBoard = document.getElementById('combat-map-board');
             const combatMapImage = document.getElementById('combat-map-image');
@@ -464,10 +738,164 @@
             const generateCombatMapBtn = document.getElementById('generateCombatMapBtn');
             const cancelCombatMapBtn = document.getElementById('cancelCombatMapBtn');
             const tokenTooltip = document.getElementById('tokenTooltip');
-            
+
+            const subscriptionStatus = document.getElementById('subscription-status');
+            const apiCallsContainer = document.getElementById('api-calls-container');
+            const apiCallsRemaining = document.getElementById('api-calls-remaining');
+            const subscribeBtn = document.getElementById('subscribe-btn');
+
+
             // --- SYSTEM PROMPT ---
             const systemPrompt = `You are an expert Dungeon Master assistant for D&D 5e. Use accurate rules from Dungeons & Dragons 5th Edition to generate content based on user prompts. Respond only with the requested generation (e.g., loot lists, shop inventories, events, encounters, or stat blocks) in markdown format for readability. Do not add extra commentary unless asked. Keep responses concise, balanced for the party's level and size, and flavorful.`;
             
+            // --- CUSTOM MODAL LOGIC ---
+            const showModal = (message, buttons = [{ text: 'OK', value: true, class: 'bg-blue-700 hover:bg-blue-600' }]) => {
+                return new Promise((resolve) => {
+                    const modal = document.getElementById('customModal');
+                    const messageEl = document.getElementById('customModalMessage');
+                    const buttonsEl = document.getElementById('customModalButtons');
+
+                    messageEl.textContent = message;
+                    buttonsEl.innerHTML = '';
+
+                    buttons.forEach(btnInfo => {
+                        const button = document.createElement('button');
+                        button.textContent = btnInfo.text;
+                        button.className = `btn font-title flex-grow py-2 rounded-md ${btnInfo.class || ''}`;
+                        button.onclick = () => {
+                            modal.style.display = 'none';
+                            resolve(btnInfo.value);
+                        };
+                        buttonsEl.appendChild(button);
+                    });
+
+                    modal.style.display = 'flex';
+                });
+            };
+
+            const showPromptModal = (message, defaultValue = '') => {
+                return new Promise((resolve) => {
+                    const modal = document.getElementById('customPromptModal');
+                    const messageEl = document.getElementById('customPromptMessage');
+                    const inputEl = document.getElementById('customPromptInput');
+                    const buttonsEl = document.getElementById('customPromptButtons');
+
+                    messageEl.textContent = message;
+                    inputEl.value = defaultValue;
+                    buttonsEl.innerHTML = '';
+
+                    const okButton = document.createElement('button');
+                    okButton.textContent = 'OK';
+                    okButton.className = 'btn font-title flex-grow py-2 rounded-md bg-blue-700 hover:bg-blue-600';
+                    
+                    const cancelButton = document.createElement('button');
+                    cancelButton.textContent = 'Cancel';
+                    cancelButton.className = 'btn font-title flex-grow py-2 rounded-md bg-gray-600 hover:bg-gray-500';
+
+                    const handleOk = () => {
+                        modal.style.display = 'none';
+                        resolve(inputEl.value);
+                        inputEl.removeEventListener('keyup', handleKeyup);
+                    };
+
+                    const handleCancel = () => {
+                        modal.style.display = 'none';
+                        resolve(null);
+                        inputEl.removeEventListener('keyup', handleKeyup);
+                    };
+                    
+                    const handleKeyup = (event) => {
+                        if (event.key === 'Enter') {
+                            handleOk();
+                        } else if (event.key === 'Escape') {
+                            handleCancel();
+                        }
+                    };
+
+                    okButton.onclick = handleOk;
+                    cancelButton.onclick = handleCancel;
+                    inputEl.addEventListener('keyup', handleKeyup);
+
+                    buttonsEl.appendChild(okButton);
+                    buttonsEl.appendChild(cancelButton);
+
+                    modal.style.display = 'flex';
+                    inputEl.focus();
+                    inputEl.select();
+                });
+            };
+
+             // --- AUTHENTICATION ---
+             auth.onAuthStateChanged(newUser => {
+                user = newUser;
+                if (user) {
+                    // User is signed in.
+                    userName.textContent = user.displayName;
+                    loginBtn.classList.add('hidden');
+                    userInfo.classList.remove('hidden');
+                    checkSubscription();
+                } else {
+                    // User is signed out.
+                    userName.textContent = '';
+                    loginBtn.classList.remove('hidden');
+                    userInfo.classList.add('hidden');
+                    subscriptionActive = false;
+                    apiCalls = 10;
+                    updateAccountUI();
+                }
+            });
+
+            loginBtn.addEventListener('click', () => {
+                const provider = new firebase.auth.GoogleAuthProvider();
+                auth.signInWithPopup(provider).catch(error => {
+                    console.error("Login failed:", error);
+                });
+            });
+
+            logoutBtn.addEventListener('click', () => {
+                auth.signOut();
+            });
+
+            // --- SUBSCRIPTION & API LIMIT ---
+            const checkSubscription = async () => {
+                if (!user) return;
+                // THIS IS A PLACEHOLDER: In a real app, you would check a database (like Firestore) 
+                // to see if the user has an active subscription.
+                const doc = await db.collection('users').doc(user.uid).get();
+                if (doc.exists && doc.data().subscriptionActive) {
+                    subscriptionActive = true;
+                } else {
+                    subscriptionActive = false;
+                    apiCalls = doc.exists ? doc.data().apiCalls : 10;
+                }
+                updateAccountUI();
+            };
+
+            subscribeBtn.addEventListener('click', async () => {
+                if (!user) {
+                    showModal("Please log in to subscribe.");
+                    return;
+                }
+                // THIS IS A PLACEHOLDER: In a real app, this would trigger a payment flow (e.g., Stripe, PayPal).
+                // After successful payment, you'd update their status in your database.
+                await db.collection('users').doc(user.uid).set({ subscriptionActive: true }, { merge: true });
+                subscriptionActive = true;
+                updateAccountUI();
+                showModal("Congratulations! You are now a premium member with unlimited generations.");
+            });
+
+            const updateAccountUI = () => {
+                if (subscriptionActive) {
+                    subscriptionStatus.textContent = "Premium Tier";
+                    apiCallsContainer.classList.add('hidden');
+                } else {
+                    subscriptionStatus.textContent = "Free Tier";
+                    apiCallsContainer.classList.remove('hidden');
+                    apiCallsRemaining.textContent = apiCalls;
+                }
+            };
+            
+
             // --- TAB SWITCHING LOGIC ---
             const switchTab = (activeTabKey) => {
                 Object.values(mainContent).forEach(c => c.classList.add('hidden'));
@@ -501,11 +929,10 @@
                 const enemySVG = `<svg viewBox="0 0 100 100"><path d="M10 50 C10 10, 90 10, 90 50 C90 90, 60 90, 50 70 C40 90, 10 90, 10 50 Z M25 40 a5,5 0 1,1 -10,0 a5,5 0 1,1 10,0 M75 40 a5,5 0 1,1 -10,0 a5,5 0 1,1 10,0"/></svg>`;
                 tokenElement.innerHTML = type === 'player' ? playerSVG : enemySVG;
 
-                // Snap to grid for initial position
                 const gridSize = 5;
                 const tokenSize = 4;
                 const offset = (gridSize - tokenSize) / 2;
-                const gridX = Math.floor(Math.random() * 20); // 0-19
+                const gridX = Math.floor(Math.random() * 20);
                 const gridY = Math.floor(Math.random() * 20);
                 const x = (gridX * gridSize) + offset;
                 const y = (gridY * gridSize) + offset;
@@ -555,13 +982,13 @@
                 const snappedX = (gridX * gridSize) + offset;
                 const snappedY = (gridY * gridSize) + offset;
 
-                activeToken.x = Math.max(offset, Math.min(snappedX, 100 - tokenSize));
-                activeToken.y = Math.max(offset, Math.min(snappedY, 100 - tokenSize));
+                activeToken.x = Math.max(offset, Math.min(snappedX, 100 - tokenSize - offset));
+                activeToken.y = Math.max(offset, Math.min(snappedY, 100 - tokenSize - offset));
+
 
                 activeToken.element.style.left = `${activeToken.x}%`;
                 activeToken.element.style.top = `${activeToken.y}%`;
                 
-                // update tooltip position
                 tokenTooltip.style.left = `${e.clientX + 15}px`;
                 tokenTooltip.style.top = `${e.clientY}px`;
             });
@@ -577,65 +1004,213 @@
             combatToggleGrid.addEventListener('change', () => combatMapGrid.classList.toggle('hidden'));
             
             mapToggleTokens.addEventListener('change', () => {
-                renderTokens(mapTokenContainer, mapToggleTokens.checked, false)
+                renderTokens(mapTokenContainer, mapToggleTokens.checked, false);
             });
 
             combatToggleTokens.addEventListener('change', () => {
-                 renderTokens(combatTokenContainer, combatToggleTokens.checked, combatToggleTokens.checked)
+                 renderTokens(combatTokenContainer, combatToggleTokens.checked, combatToggleTokens.checked);
             });
             
-
-            // --- IMAGE GENERATION ---
-            const generateImageAPI = async (prompt) => {
-                const apiKey = "AIzaSyDKRFfQlTs4H33C7_ArQymSeGVlEPUxrZE";
-                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${apiKey}`;
-                
-                const stylePrompt = "A detailed top-down battle map for D&D, fantasy, digital painting, playable game asset, high fantasy cartography. The perspective is directly overhead, like a blueprint. IMPORTANT: The map must be empty and contain absolutely no creatures, people, characters, animals, or monsters. Only generate the environment and terrain.";
-                const fullPrompt = `${stylePrompt} Scene: ${prompt}`;
-
-                const payload = { instances: [{ prompt: fullPrompt }], parameters: { "sampleCount": 1 } };
-                try {
-                    const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-                    if (!response.ok) { throw new Error(`Image API call failed with status: ${response.status}`); }
-                    const result = await response.json();
-                    return result.predictions[0].bytesBase64Encoded;
-                } catch (error) {
-                    console.error("Error calling Image API:", error);
-                    return null;
+            // --- MAP LIBRARY LOGIC ---
+            const getCurrentFolder = () => {
+                let current = mapLibrary;
+                for (const folderName of currentMapPath) {
+                    // Ensure the path exists, creating it if it doesn't (defensive coding)
+                    if (!current.folders[folderName]) {
+                        current.folders[folderName] = { folders: {}, maps: [] };
+                    }
+                    current = current.folders[folderName];
                 }
+                return current;
             };
             
+            const renderMapLibrary = () => {
+                const currentFolder = getCurrentFolder();
+                mapLibraryContainer.innerHTML = '';
+
+                mapBreadcrumbs.innerHTML = `<span class="breadcrumb-link" data-path-index="-1">Library</span>`;
+                currentMapPath.forEach((folderName, index) => {
+                    mapBreadcrumbs.innerHTML += ` / <span class="breadcrumb-link" data-path-index="${index}">${folderName}</span>`;
+                });
+
+                Object.keys(currentFolder.folders).sort().forEach(folderName => {
+                    const folderItem = document.createElement('div');
+                    folderItem.className = 'library-item folder-item p-2 rounded-md flex flex-col items-center justify-center';
+                    folderItem.dataset.folderName = folderName;
+                    folderItem.innerHTML = `
+                        <svg class="w-16 h-16 text-yellow-500" fill="currentColor" viewBox="0 0 20 20"><path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"></path></svg>
+                        <p class="text-center font-bold truncate mt-2 w-full">${folderName}</p>
+                    `;
+                    mapLibraryContainer.appendChild(folderItem);
+                });
+
+                currentFolder.maps.forEach(map => {
+                    const mapItem = document.createElement('div');
+                    mapItem.className = 'library-item p-2 rounded-md space-y-2';
+                    mapItem.innerHTML = `
+                        <img src="${map.imageData}" class="w-full h-32 object-cover rounded-md" alt="${map.name}">
+                        <p class="text-center font-bold truncate w-full">${map.name}</p>
+                        <div class="flex gap-2">
+                            <button data-id="${map.id}" class="load-map-btn btn flex-grow text-sm py-1 px-2 rounded">Load</button>
+                            <button data-id="${map.id}" class="delete-map-btn btn flex-grow text-sm py-1 px-2 rounded bg-gray-600 hover:bg-gray-500">Del</button>
+                        </div>
+                    `;
+                    mapLibraryContainer.appendChild(mapItem);
+                });
+            };
+            
+            mapBreadcrumbs.addEventListener('click', (e) => {
+                if (e.target.classList.contains('breadcrumb-link')) {
+                    const pathIndex = parseInt(e.target.dataset.pathIndex);
+                    currentMapPath = currentMapPath.slice(0, pathIndex + 1);
+                    renderMapLibrary();
+                }
+            });
+
+            newFolderBtn.addEventListener('click', async () => {
+                const folderName = await showPromptModal("Enter new folder name:");
+                if (folderName && folderName.trim() !== "") {
+                    const currentFolder = getCurrentFolder();
+                    if (!currentFolder.folders[folderName]) {
+                        currentFolder.folders[folderName] = { folders: {}, maps: [] };
+                        await saveAndRenderMaps();
+                    } else {
+                        await showModal("A folder with this name already exists.");
+                    }
+                }
+            });
+
+            mapLibraryContainer.addEventListener('click', (e) => {
+                const folderItem = e.target.closest('.folder-item');
+                const loadBtn = e.target.closest('.load-map-btn');
+                const deleteBtn = e.target.closest('.delete-map-btn');
+
+                if (folderItem) {
+                    currentMapPath.push(folderItem.dataset.folderName);
+                    renderMapLibrary();
+                } else if (loadBtn) {
+                    loadMap(loadBtn.dataset.id);
+                } else if (deleteBtn) {
+                    deleteMap(deleteBtn.dataset.id);
+                }
+            });
+
+            const loadMap = (mapId) => {
+                // Search the entire library, not just the current folder, for the map
+                let foundMap = null;
+                const findMapRecursive = (folder) => {
+                    const map = folder.maps.find(m => m.id === parseInt(mapId));
+                    if (map) {
+                        foundMap = map;
+                        return;
+                    }
+                    for (const subFolderName in folder.folders) {
+                        findMapRecursive(folder.folders[subFolderName]);
+                    }
+                };
+                findMapRecursive(mapLibrary);
+                if (foundMap) {
+                    mapImageOutput.src = foundMap.imageData;
+                    mapActions.classList.remove('hidden');
+                    currentMapData = foundMap;
+                }
+            };
+
+            const deleteMap = async (mapId) => {
+                const confirmed = await showModal(`Are you sure you want to delete this map?`, [
+                    { text: 'Delete', value: true, class: 'bg-red-700 hover:bg-red-600' },
+                    { text: 'Cancel', value: false, class: 'bg-gray-600 hover:bg-gray-500' }
+                ]);
+                if (confirmed) {
+                    const removeMapRecursive = (folder) => {
+                        const index = folder.maps.findIndex(m => m.id === parseInt(mapId));
+                        if (index > -1) {
+                            folder.maps.splice(index, 1);
+                            return true;
+                        }
+                        for (const subFolderName in folder.folders) {
+                            if (removeMapRecursive(folder.folders[subFolderName])) return true;
+                        }
+                        return false;
+                    };
+                    removeMapRecursive(mapLibrary);
+                    await saveAndRenderMaps();
+                }
+            };
+
+            saveMapBtn.addEventListener('click', async () => {
+                const name = await showPromptModal("Enter map name:");
+                if (name && name.trim() !== "") {
+                    const currentFolder = getCurrentFolder();
+                    const mapId = Date.now();
+                    currentFolder.maps.push({ id: mapId, name, imageData: mapImageOutput.src });
+                    await saveAndRenderMaps();
+                }
+            });
+
+            downloadMapBtn.addEventListener('click', () => {
+                const link = document.createElement('a');
+                link.href = mapImageOutput.src;
+                link.download = 'generated_map.png';
+                link.click();
+            });
+
             generateMapImageBtn.addEventListener('click', async () => {
-                const userPrompt = mapPromptInput.value || 'a generic dungeon room';
-                mapImageOutput.src = '';
-                const container = mapBoard;
-                container.innerHTML = '<div class="flex justify-center items-center h-full"><div class="loader"></div></div>';
-                
-                const base64Data = await generateImageAPI(userPrompt);
-                
-                container.innerHTML = ''; 
-                container.appendChild(mapImageOutput);
-                container.appendChild(mapGrid);
-                container.appendChild(mapTokenContainer);
-                
+                const prompt = mapPromptInput.value;
+                if (!prompt) return;
+
+                const btn = generateMapImageBtn;
+                btn.disabled = true;
+                btn.innerHTML = '<div class="loader mx-auto"></div>';
+
+                const base64Data = await generateImageAPI(prompt);
                 if (base64Data) {
                     mapImageOutput.src = `data:image/png;base64,${base64Data}`;
-                    tokens = party.map(p => createToken(p.name, 'player'));
-                    renderTokens(mapTokenContainer, mapToggleTokens.checked, false);
+                    mapActions.classList.remove('hidden');
                 } else {
-                    container.innerHTML = '<p class="text-red-500">Failed to generate map image.</p>';
+                    await showModal("Failed to generate map image.");
                 }
+
+                btn.disabled = false;
+                btn.innerHTML = 'Generate Map Image';
             });
-            
-            // --- DICE ROLLER LOGIC ---
-            const rollDice = (sides) => {
-                if (sides === 3) return Math.floor(Math.random() * 3) + 1;
-                return Math.floor(Math.random() * sides) + 1;
+
+            const saveAndRenderMaps = async () => {
+                try {
+                    if (user) {
+                        await db.collection('users').doc(user.uid).collection('data').doc('maps').set(mapLibrary);
+                    } else {
+                        localStorage.setItem('dmHelperMaps', JSON.stringify(mapLibrary));
+                    }
+                    renderMapLibrary();
+                } catch (e) {
+                    console.error("Failed to save maps:", e);
+                    await showModal("Error: Could not save maps. Your browser's storage may be full.");
+                }
             };
+
+            const loadMapsFromStorage = async () => {
+                try {
+                    if (user) {
+                        const doc = await db.collection('users').doc(user.uid).collection('data').doc('maps').get();
+                        if (doc.exists) mapLibrary = doc.data(); else mapLibrary = { folders: {}, maps: [] };
+                    } else {
+                        const stored = localStorage.getItem('dmHelperMaps');
+                        if (stored) mapLibrary = JSON.parse(stored);
+                    }
+                } catch(e) {
+                    console.error("Failed to load maps from storage:", e);
+                    mapLibrary = { folders: {}, maps: [] };
+                }
+                renderMapLibrary();
+            };
+
+            // --- DICE ROLLER ---
+            const rollDice = (sides) => Math.floor(Math.random() * sides) + 1;
 
             const updateRollLog = () => {
                 rollLogEl.innerHTML = '';
-                rollHistory.slice(-8).reverse().forEach(roll => {
+                rollHistory.slice(-10).reverse().forEach(roll => {
                     const li = document.createElement('li');
                     li.textContent = roll.quantity > 1 ? `${roll.quantity}D${roll.sides}: ${roll.total} (${roll.results.join(', ')})` : `D${roll.sides}: ${roll.total}`;
                     li.className = 'border-b border-gray-700 pb-1';
@@ -665,8 +1240,13 @@
 
             // --- TEXT GENERATION API ---
             const callGeminiAPI = async (prompt) => {
-                const apiKey = "AIzaSyDKRFfQlTs4H33C7_ArQymSeGVlEPUxrZE";
-                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+                if (!subscriptionActive && apiCalls <= 0) {
+                    showModal("You have run out of free AI generations. Please subscribe for unlimited access.");
+                    return "API limit reached.";
+                }
+
+                const apiKey = "YOUR_GEMINI_API_KEY"; // Replace with your Gemini API Key
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
                 const payload = {
                     contents: [{ parts: [{ text: prompt }] }],
                     systemInstruction: { parts: [{ text: systemPrompt }] },
@@ -675,6 +1255,13 @@
                     const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
                     if (!response.ok) { throw new Error(`API call failed with status: ${response.status}`); }
                     const result = await response.json();
+
+                    if (!subscriptionActive) {
+                        apiCalls--;
+                        if(user) await db.collection('users').doc(user.uid).set({ apiCalls: apiCalls }, { merge: true });
+                        updateAccountUI();
+                    }
+
                     return result.candidates[0].content.parts[0].text;
                 } catch (error) {
                     console.error("Error calling Gemini API:", error);
@@ -683,11 +1270,40 @@
             };
 
             // --- CHARACTER & PARTY LOGIC ---
-            const loadCharactersFromStorage = () => {
-                const storedChars = localStorage.getItem('dmHelperCharacters');
-                if (storedChars) characters = JSON.parse(storedChars);
-                const storedParty = localStorage.getItem('dmHelperParty');
-                if (storedParty) party = JSON.parse(storedParty);
+            const saveCharactersAndParty = async () => {
+                try {
+                    if (user) {
+                        await db.collection('users').doc(user.uid).collection('data').doc('characters').set(characters);
+                        await db.collection('users').doc(user.uid).collection('data').doc('party').set({ party });
+                    } else {
+                        localStorage.setItem('dmHelperCharacters', JSON.stringify(characters));
+                        localStorage.setItem('dmHelperParty', JSON.stringify(party));
+                    }
+                } catch (e) {
+                     console.error("Failed to save characters:", e);
+                    await showModal("Error: Could not save characters. Your browser's storage may be full.");
+                }
+            };
+
+            const loadCharactersFromStorage = async () => {
+                try {
+                    if (user) {
+                        const charsDoc = await db.collection('users').doc(user.uid).collection('data').doc('characters').get();
+                        if (charsDoc.exists) characters = charsDoc.data(); else characters = {};
+                        
+                        const partyDoc = await db.collection('users').doc(user.uid).collection('data').doc('party').get();
+                        if (partyDoc.exists) party = partyDoc.data().party; else party = [];
+                    } else {
+                        const storedChars = localStorage.getItem('dmHelperCharacters');
+                        if (storedChars) characters = JSON.parse(storedChars);
+                        const storedParty = localStorage.getItem('dmHelperParty');
+                        if (storedParty) party = JSON.parse(storedParty);
+                    }
+                } catch(e) {
+                    console.error("Failed to load characters from storage:", e);
+                    characters = {};
+                    party = [];
+                }
                 renderSavedCharacters();
                 renderPartyList();
             };
@@ -737,34 +1353,37 @@
                 }
             };
 
-            const togglePartyMember = (char) => {
+            const togglePartyMember = async (char) => {
                 const index = party.findIndex(p => p.name === char.name);
                 if (index > -1) party.splice(index, 1); else party.push(char);
-                localStorage.setItem('dmHelperParty', JSON.stringify(party));
+                await saveCharactersAndParty();
                 renderSavedCharacters();
                 renderPartyList();
             };
 
-            const saveCharacter = () => {
-                const name = charNameInput.value.trim();
+            const saveCharacter = async (charData) => {
+                const name = charData.name.trim();
                 if (!name) return;
-                characters[name] = { name: name, class: charClassInput.value, notes: charNotesInput.value };
-                localStorage.setItem('dmHelperCharacters', JSON.stringify(characters));
+                characters[name] = charData;
+                await saveCharactersAndParty();
                 renderSavedCharacters();
                 charNameInput.value = charClassInput.value = charNotesInput.value = '';
             };
 
-            const deleteCharacter = (name) => {
-                if (confirm(`Are you sure you want to delete ${name}?`)) {
+            const deleteCharacter = async (name) => {
+                const confirmed = await showModal(`Are you sure you want to delete ${name}?`, [
+                    { text: 'Delete', value: true, class: 'bg-red-700 hover:bg-red-600' },
+                    { text: 'Cancel', value: false, class: 'bg-gray-600 hover:bg-gray-500' }
+                ]);
+                if (confirmed) {
                     delete characters[name];
                     party = party.filter(p => p.name !== name);
-                    localStorage.setItem('dmHelperCharacters', JSON.stringify(characters));
-                    localStorage.setItem('dmHelperParty', JSON.stringify(party));
+                    await saveCharactersAndParty();
                     renderSavedCharacters();
                     renderPartyList();
                 }
             };
-            saveCharBtn.addEventListener('click', saveCharacter);
+            saveCharBtn.addEventListener('click', ()=>saveCharacter({name: charNameInput.value, class: charClassInput.value, notes: charNotesInput.value}));
             
             const getAveragePartyLevel = () => {
                 if (party.length === 0) return 1;
@@ -782,11 +1401,22 @@
                 xpOutput.textContent = `Total XP: ${totalXp}\nParty Members: ${party.length}\n---\n` + party.map(p => `${p.name} receives ${xpPerPlayer} XP.`).join('\n');
             });
 
+            // Helper to get party backstories summary for AI prompts
+            const getPartyBackstoriesSummary = () => {
+                if (party.length === 0) return '';
+                const summaries = party.map(p => {
+                    const backstoryMatch = p.notes.match(/Backstory\s*(.*)/s);
+                    return backstoryMatch ? backstoryMatch[1].trim().substring(0, 100) : '';
+                }).filter(s => s);
+                return summaries.length > 0 ? ` Subtly incorporate themes from party backstories: ${summaries.join('; ')}.` : '';
+            };
+
             generateLootBtn.addEventListener('click', async () => {
                 const playerClass = lootPlayerClassInput.value || 'adventurer';
                 const playerLevel = getAveragePartyLevel();
                 lootOutput.innerHTML = '<div class="loader"></div>';
-                const prompt = `Generate D&D 5e loot for a level ${playerLevel} ${playerClass}.`;
+                const backstorySummary = getPartyBackstoriesSummary();
+                const prompt = `Generate D&D 5e loot for a level ${playerLevel} ${playerClass}.${backstorySummary}`;
                 const response = await callGeminiAPI(prompt);
                 lootOutput.innerHTML = parseMarkdown(response);
             });
@@ -794,7 +1424,8 @@
             generateShopBtn.addEventListener('click', async () => {
                 const shopType = shopTypeSelect.value;
                 shopOutput.innerHTML = '<div class="loader"></div>';
-                const prompt = `Generate a D&D 5e inventory for a ${shopType} shop.`;
+                const backstorySummary = getPartyBackstoriesSummary();
+                const prompt = `Generate a D&D 5e inventory for a ${shopType} shop.${backstorySummary}`;
                 const response = await callGeminiAPI(prompt);
                 shopOutput.innerHTML = parseMarkdown(response);
             });
@@ -803,7 +1434,8 @@
                 const environment = eventEnvironmentInput.value || 'any';
                 const level = getAveragePartyLevel();
                 eventOutput.innerHTML = '<div class="loader"></div>';
-                const prompt = `Generate a random, non-combat D&D event for a level ${level} party in a ${environment} environment.`;
+                const backstorySummary = getPartyBackstoriesSummary();
+                const prompt = `Generate a random, non-combat D&D event for a level ${level} party in a ${environment} environment.${backstorySummary}`;
                 const response = await callGeminiAPI(prompt);
                 eventOutput.innerHTML = parseMarkdown(response);
             });
@@ -814,7 +1446,8 @@
                 if (party.length === 0) { combatOutput.textContent = "Please add characters to your party first."; return; }
                 combatOutput.innerHTML = '<div class="loader"></div>';
                 monsterSelection.classList.add('hidden');
-                const prompt = `Generate a D&D 5e combat encounter for a party of ${party.length} level ${level} players in a ${environment} environment. List the enemies on one line at the end, like 'Enemies: 2x Goblin, 1x Hobgoblin'.`;
+                const backstorySummary = getPartyBackstoriesSummary();
+                const prompt = `Generate a D&D 5e combat encounter for a party of ${party.length} level ${level} players in a ${environment} environment. List the enemies on one line at the end, like 'Enemies: 2x Goblin, 1x Hobgoblin'.${backstorySummary}`;
                 const response = await callGeminiAPI(prompt);
                 combatOutput.innerHTML = parseMarkdown(response);
 
@@ -860,7 +1493,7 @@
                 if (base64Data) {
                     initiateCombat(`data:image/png;base64,${base64Data}`);
                 } else {
-                    alert("Failed to generate combat map. Starting combat without a map.");
+                    await showModal("Failed to generate combat map. Starting combat without a map.");
                     initiateCombat(null);
                 }
 
@@ -929,7 +1562,7 @@
                         updateStatBlock();
                     };
                     turnOrderList.appendChild(li);
-});
+                });
             };
 
             const updateStatBlock = () => {
@@ -970,12 +1603,626 @@
                 eventOutput.innerHTML = '';
                 statBlockOutput.innerHTML = `Select a creature from the turn tracker or press 'Next Turn'.`;
             });
+            
+            // --- CHARACTER CREATOR OVERHAUL (Matching D&D Beyond Flow) ---
+            const dndData = {}; 
+            let creatorNavSetupDone = false;
+            
+            const loadDnDData = () => {
+                // Expanded D&D Data with subraces, subclasses, feats, languages, size, speed, age, more backgrounds, etc.
+                const skills = ["Acrobatics (Dex)", "Animal Handling (Wis)", "Arcana (Int)", "Athletics (Str)", "Deception (Cha)", "History (Int)", "Insight (Wis)", "Intimidation (Cha)", "Investigation (Int)", "Medicine (Wis)", "Nature (Int)", "Perception (Wis)", "Performance (Cha)", "Persuasion (Cha)", "Religion (Int)", "Sleight of Hand (Dex)", "Stealth (Dex)", "Survival (Wis)"];
+                
+                const languages = ["Common", "Dwarvish", "Elvish", "Giant", "Gnomish", "Goblin", "Halfling", "Orc", "Abyssal", "Celestial", "Draconic", "Deep Speech", "Infernal", "Primordial", "Sylvan", "Undercommon"];
 
+                const feats = ["Alert", "Athlete", "Actor", "Charger", "Crossbow Expert", "Defensive Duelist", "Dual Wielder", "Dungeon Delver", "Durable", "Elemental Adept", "Grappler", "Great Weapon Master", "Healer", "Heavily Armored", "Heavy Armor Master", "Inspiring Leader", "Keen Mind", "Lightly Armored", "Linguist", "Lucky", "Mage Slayer", "Magic Initiate", "Martial Adept", "Medium Armor Master", "Mobile", "Mounted Combatant", "Observant", "Polearm Master", "Resilient", "Ritual Caster", "Savage Attacker", "Sentinel", "Sharpshooter", "Shield Master", "Skilled", "Skulker", "Spell Sniper", "Tavern Brawler", "Tough", "War Caster", "Weapon Master"];
+
+                Object.assign(dndData, {
+                    alignments: ["Lawful Good", "Neutral Good", "Chaotic Good", "Lawful Neutral", "True Neutral", "Chaotic Neutral", "Lawful Evil", "Neutral Evil", "Chaotic Evil"],
+                    skills: skills,
+                    languages: languages,
+                    feats: feats,
+                    races: {
+                        "Human": { description: "Versatile and ambitious.", subraces: ["Standard", "Variant"], speed: 30, size: "Medium", languages: ["Common", "one extra language"], ageRange: [15, 80], traits: [{name: "Variant Human Feat", desc: "If Variant, choose one feat at level 1."}] },
+                        "Elf": { description: "Graceful and long-lived.", subraces: ["High Elf", "Wood Elf", "Drow"], speed: 30, size: "Medium", languages: ["Common", "Elvish"], ageRange: [100, 750], traits: [{name: "Darkvision", desc: "You can see in dim light within 60 feet of you as if it were bright light."}, {name: "Fey Ancestry", desc: "You have advantage on saving throws against being charmed."}] },
+                        "Dwarf": { description: "Stout and resilient.", subraces: ["Hill Dwarf", "Mountain Dwarf"], speed: 25, size: "Medium", languages: ["Common", "Dwarvish"], ageRange: [50, 350], traits: [{name: "Darkvision", desc: "You can see in dim light within 60 feet of you as if it were bright light."}, {name: "Dwarven Resilience", desc: "You have advantage on saving throws against poison."}] },
+                        "Halfling": { description: "Small and good-natured.", subraces: ["Lightfoot", "Stout"], speed: 25, size: "Small", languages: ["Common", "Halfling"], ageRange: [20, 250], traits: [{name: "Lucky", desc: "When you roll a 1 on an attack roll, ability check, or saving throw, you can reroll the die."}, {name: "Brave", desc: "You have advantage on saving throws against being frightened."}] },
+                        "Dragonborn": { description: "A noble, draconic humanoid.", subraces: [], speed: 30, size: "Medium", languages: ["Common", "Draconic"], ageRange: [15, 80], traits: [{name: "Draconic Ancestry", desc: "You have resistance to a damage type determined by your dragon ancestor."}, {name: "Breath Weapon", desc: "You can use your action to exhale destructive energy."}] },
+                        "Gnome": { description: "Small and clever inventors.", subraces: ["Forest Gnome", "Rock Gnome"], speed: 25, size: "Small", languages: ["Common", "Gnomish"], ageRange: [40, 500], traits: [{name: "Darkvision", desc: "You can see in dim light within 60 feet of you as if it were bright light."}, {name: "Gnome Cunning", desc: "You have advantage on all Intelligence, Wisdom, and Charisma saving throws against magic."}] },
+                        "Half-Elf": { description: "A charismatic mix of human and elf.", subraces: [], speed: 30, size: "Medium", languages: ["Common", "Elvish", "one extra language"], ageRange: [20, 180], traits: [{name: "Darkvision", desc: "You can see in dim light within 60 feet of you as if it were bright light."}, {name: "Fey Ancestry", desc: "You have advantage on saving throws against being charmed."}, {name: "Skill Versatility", desc: "You gain proficiency in two skills of your choice."}] },
+                        "Half-Orc": { description: "Strong and fierce.", subraces: [], speed: 30, size: "Medium", languages: ["Common", "Orc"], ageRange: [14, 75], traits: [{name: "Darkvision", desc: "You can see in dim light within 60 feet of you as if it were bright light."}, {name: "Relentless Endurance", desc: "When you are reduced to 0 hit points but not killed outright, you can drop to 1 hit point instead (once per long rest)."}] },
+                        "Tiefling": { description: "Descended from infernal heritage.", subraces: [], speed: 30, size: "Medium", languages: ["Common", "Infernal"], ageRange: [18, 100], traits: [{name: "Darkvision", desc: "You can see in dim light within 60 feet of you as if it were bright light."}, {name: "Hellish Resistance", desc: "You have resistance to fire damage."}] }
+                    },
+                    classes: {
+                        "Barbarian": { description: "A fierce warrior of primitive background.", subclassLevel: 3, subclasses: ["Path of the Berserker", "Path of the Totem Warrior"], savingThrows: ["Strength", "Constitution"], skillChoices: { count: 2, options: ["Animal Handling", "Athletics", "Intimidation", "Nature", "Perception", "Survival"]}, features:[{name: "Rage", desc:"You can enter a rage as a bonus action."}, {name:"Unarmored Defense", desc:"While not wearing armor, your AC equals 10 + Dex mod + Con mod."}], equipmentChoices: [{options: ["a greataxe", "any martial melee weapon"]}, {options: ["two handaxes", "any simple weapon"]}, {fixed: "an explorer's pack and four javelins"}], spellcasting: false },
+                        "Bard": { description: "An inspiring magician whose power echoes the music of creation.", subclassLevel: 3, subclasses: ["College of Lore", "College of Valor"], savingThrows: ["Dexterity", "Charisma"], skillChoices: { count: 3, options: skills }, features:[{name:"Bardic Inspiration", desc:"You can inspire others through stirring words or music."}], equipmentChoices: [{options: ["a rapier", "a longsword", "any simple weapon"]}, {options: ["a diplomat's pack", "an entertainer's pack"]}, {options: ["a lute", "any other musical instrument"]}, {fixed: "leather armor and a dagger"}], spellcasting: true },
+                        "Cleric": { description: "A priestly champion who wields divine magic.", subclassLevel: 1, subclasses: ["Life Domain", "Light Domain", "Knowledge Domain", "Nature Domain", "Tempest Domain", "Trickery Domain", "War Domain"], savingThrows: ["Wisdom", "Charisma"], skillChoices: { count: 2, options: ["History", "Insight", "Medicine", "Persuasion", "Religion"]}, features:[{name:"Spellcasting", desc:"You can cast cleric spells."}, {name: "Divine Domain", desc:"Choose one domain related to your deity."}], equipmentChoices: [{options: ["a mace", "a warhammer"]}, {options: ["scale mail", "leather armor", "chain mail"]}, {options: ["a light crossbow and 20 bolts", "any simple weapon"]}, {options: ["a priest's pack", "an explorer's pack"]}, {fixed: "a shield and a holy symbol"}], spellcasting: true },
+                        // Add similar expansions for other classes...
+                        // For brevity, assuming similar structure for remaining classes. In full code, expand all.
+                        "Druid": { description: "A priest of the Old Faith, wielding the powers of nature.", subclassLevel: 2, subclasses: ["Circle of the Land", "Circle of the Moon"], savingThrows: ["Intelligence", "Wisdom"], skillChoices: { count: 2, options: ["Arcana", "Animal Handling", "Insight", "Medicine", "Nature", "Perception", "Religion", "Survival"]}, features:[{name:"Druidic", desc:"You know Druidic, the secret language of druids."}, {name:"Spellcasting", desc:"You can cast druid spells."}], equipmentChoices: [{options: ["a wooden shield", "any simple weapon"]}, {options: ["a scimitar", "any simple melee weapon"]}, {fixed: "leather armor, an explorer's pack, and a druidic focus"}], spellcasting: true },
+                        "Fighter": { description: "A master of martial combat.", subclassLevel: 3, subclasses: ["Champion", "Battle Master", "Eldritch Knight"], savingThrows: ["Strength", "Constitution"], skillChoices: { count: 2, options: ["Acrobatics", "Animal Handling", "Athletics", "History", "Insight", "Intimidation", "Perception", "Survival"]}, features:[{name:"Fighting Style", desc:"You adopt a particular style of fighting as your specialty."}, {name:"Second Wind", desc:"You have a limited well of stamina you can draw on to protect yourself from harm."}], equipmentChoices: [{options: ["chain mail", "leather armor, longbow, and 20 arrows"]}, {options: ["a martial weapon and a shield", "two martial weapons"]}, {options: ["a light crossbow and 20 bolts", "two handaxes"]}, {options: ["a dungeoneer's pack", "an explorer's pack"]}], spellcasting: false },
+                        // ... Expand for Monk, Paladin, Ranger, Rogue, Sorcerer, Warlock, Wizard similarly.
+                    },
+                    backgrounds: {
+                        "Acolyte": { skillProficiencies: ["Insight", "Religion"], languagesChoices: 2, equipment: ["A holy symbol", "a prayer book", "5 sticks of incense", "vestments", "common clothes", "15 gp"], features: [{name: "Shelter of the Faithful", desc: "You can receive free healing and care at a temple, shrine, or other established presence of your faith."}], personalityTraits: ["I idolize a particular hero of my faith and constantly refer to that person's deeds and example.", "I can find common ground between the fiercest enemies, empathizing with them and always working toward peace."], ideals: ["Tradition. The ancient traditions of worship and sacrifice must be preserved and upheld. (Lawful)", "Charity. I always try to help those in need, no matter what the personal cost. (Good)"], bonds: ["I would die to recover an ancient relic of my faith that was lost long ago.", "I owe my life to the priest who took me in when my parents died."], flaws: ["I judge others harshly, and myself even more severely.", "I put too much trust in those who wield power within my temple's hierarchy."] },
+                        "Criminal": { skillProficiencies: ["Deception", "Stealth"], languagesChoices: 0, equipment: ["A crowbar", "dark common clothes with a hood", "15 gp"], features: [{name: "Criminal Contact", desc: "You have a reliable and trustworthy contact who acts as your liaison to a network of other criminals."}], personalityTraits: ["I always have a plan for what to do when things go wrong.", "I am always calm, no matter what the situation. I never raise my voice or let my emotions control me."], ideals: ["Honor. I don't steal from people who can't afford it. (Lawful)", "Freedom. Chains are meant to be broken, as are those who would forge them. (Chaotic)"], bonds: ["I'm trying to pay off an old debt I owe to a generous benefactor.", "Someone I loved died because of a mistake I made. That will never happen again."], flaws: ["When I see something valuable, I can't think about anything but stealing it.", "I'm convinced that no one can be trusted. I am constantly on the lookout for treachery."] },
+                        "Folk Hero": { skillProficiencies: ["Animal Handling", "Survival"], languagesChoices: 0, equipment: ["Artisan's tools", "a shovel", "an iron pot", "common clothes", "10 gp"], features: [{name: "Rustic Hospitality", desc: "Common folk will accept you and yours, and will hide you from the law if necessary."}], personalityTraits: ["I'm confident in my own abilities and do what I can to instill confidence in others.", "I misuse long words in an attempt to sound smarter."], ideals: ["Respect. People deserve to be treated with dignity and respect. (Good)", "Destiny. Nothing and no one can steer me away from my higher calling. (Any)"], bonds: ["I protect those who cannot protect themselves.", "I wish my childhood sweetheart had come with me to pursue my destiny."], flaws: ["The tyrant who rules my land will stop at nothing to see me killed.", "I have trouble trusting my allies."] },
+                        // Add more backgrounds like Sage, Soldier, Outlander, etc., with full details.
+                    },
+                    spells: {
+                        // Existing spells data, expand as needed.
+                        "Bard": { cantrips: ["Dancing Lights", "Vicious Mockery"], level1: ["Charm Person", "Cure Wounds", "Healing Word", "Sleep", "Thunderwave"] },
+                        // ... Expand for all spellcasting classes.
+                    }
+                });
+            };
+
+            const goToStep = (step) => {
+                document.querySelectorAll('.creator-step').forEach(s => s.classList.remove('active'));
+                const nextStepEl = document.getElementById(`creator-step-${step}`);
+                if(nextStepEl) {
+                    nextStepEl.classList.add('active');
+                }
+            };
+
+            const setupCreatorNav = () => {
+                if (creatorNavSetupDone) return;
+
+                document.getElementById('creator-next-1').addEventListener('click', () => { 
+                    creatorData.race = document.getElementById('race-select').value; 
+                    creatorData.subrace = document.getElementById('subrace-select').value || null;
+                    goToStep(2); 
+                });
+                document.getElementById('creator-prev-2').addEventListener('click', () => goToStep(1));
+                document.getElementById('creator-next-2').addEventListener('click', () => { 
+                    creatorData.class = document.getElementById('class-select').value;
+                    creatorData.subclass = document.getElementById('subclass-select').value || null;
+                    goToStep(3);
+                });
+                document.getElementById('creator-prev-3').addEventListener('click', () => goToStep(2));
+                document.getElementById('creator-next-3').addEventListener('click', () => goToStep(4));
+                document.getElementById('creator-prev-4').addEventListener('click', () => goToStep(3));
+                document.getElementById('creator-next-4').addEventListener('click', () => { 
+                    creatorData.background = document.getElementById('background-select').value;
+                    goToStep(5);
+                });
+                document.getElementById('creator-prev-5').addEventListener('click', () => goToStep(4));
+                document.getElementById('creator-next-5').addEventListener('click', () => {
+                    creatorData.name = document.getElementById('creator-char-name').value;
+                    creatorData.alignment = document.getElementById('alignment-select').value;
+                    creatorData.age = document.getElementById('age-input').value;
+                    creatorData.height = document.getElementById('height-input').value;
+                    creatorData.weight = document.getElementById('weight-input').value;
+                    creatorData.eyes = document.getElementById('eyes-input').value;
+                    creatorData.skin = document.getElementById('skin-input').value;
+                    creatorData.hair = document.getElementById('hair-input').value;
+                    creatorData.personalityTrait = document.getElementById('personality-trait-select').value;
+                    creatorData.ideal = document.getElementById('ideal-select').value;
+                    creatorData.bond = document.getElementById('bond-select').value;
+                    creatorData.flaw = document.getElementById('flaw-select').value;
+                    creatorData.languages = Array.from(document.querySelectorAll('.language-checkbox:checked')).map(cb => cb.value);
+                    creatorData.backstory = document.getElementById('backstory-input').value;
+
+                    populateProficiencies();
+                    populateFeats();
+                    populateFeatsAndAbilities();
+                    goToStep(6);
+                });
+                document.getElementById('creator-prev-6').addEventListener('click', () => goToStep(5));
+                document.getElementById('creator-next-6').addEventListener('click', () => {
+                    creatorData.proficiencies = Array.from(document.querySelectorAll('.proficiency-checkbox:checked')).map(cb => cb.value);
+                    creatorData.feat = document.getElementById('feat-select')?.value || null;
+                    populateEquipment();
+                    goToStep(7);
+                });
+                document.getElementById('creator-prev-7').addEventListener('click', () => goToStep(6));
+                document.getElementById('creator-next-7').addEventListener('click', () => {
+                    creatorData.equipment = [];
+                    document.querySelectorAll('.equipment-choice').forEach(group => {
+                        const selected = group.querySelector('input:checked')?.value;
+                        if (selected) creatorData.equipment.push(selected);
+                    });
+
+                    const isSpellcaster = dndData.classes[creatorData.class].spellcasting;
+                    if (isSpellcaster) {
+                        populateSpells();
+                        goToStep(8);
+                    } else {
+                        creatorData.spells = null;
+                        reviewCharacter();
+                        goToStep(9);
+                    }
+                });
+                document.getElementById('creator-prev-8').addEventListener('click', () => goToStep(7));
+                document.getElementById('creator-next-8').addEventListener('click', () => {
+                    reviewCharacter();
+                    goToStep(9);
+                });
+                document.getElementById('creator-prev-9').addEventListener('click', () => {
+                    const isSpellcaster = dndData.classes[creatorData.class].spellcasting;
+                    if(isSpellcaster) goToStep(8); else goToStep(7);
+                });
+
+                 document.getElementById('finish-character-btn').addEventListener('click', async () => {
+                    const finalCharacter = {
+                        name: creatorData.name,
+                        class: `${creatorData.class} 1`,
+                        notes: document.getElementById('review-output').innerText // Save the full review as notes
+                    };
+                    await saveCharacter(finalCharacter);
+                    showModal(`${creatorData.name} has been saved to your characters!`);
+                    resetCreator();
+                });
+
+                creatorNavSetupDone = true;
+            };
+
+            const reviewCharacter = () => {
+                const reviewOutput = document.getElementById('review-output');
+                
+                // Collect Selections
+                if (dndData.classes[creatorData.class].spellcasting) {
+                    creatorData.spells = {
+                        cantrips: Array.from(document.querySelectorAll('.cantrip-checkbox:checked')).map(cb => cb.value),
+                        level1: Array.from(document.querySelectorAll('.level1-spell-checkbox:checked')).map(cb => cb.value)
+                    };
+                }
+
+                // Build Review Text
+                let abilities = 'Not set';
+                if(creatorData.abilities) {
+                    abilities = Object.keys(creatorData.abilities).map(key => `${key.substring(0,3).toUpperCase()}: ${creatorData.abilities[key].score} (${creatorData.abilities[key].modifier >= 0 ? '+' : ''}${creatorData.abilities[key].modifier})`).join(' | ');
+                }
+
+                const raceData = dndData.races[creatorData.race];
+                const classData = dndData.classes[creatorData.class];
+                const backgroundData = dndData.backgrounds[creatorData.background];
+
+                let allTraits = [ ...raceData.traits, ...classData.features, ...backgroundData.features ];
+
+                if (creatorData.subrace) {
+                    // Add subrace traits (expand in dndData if needed)
+                }
+                if (creatorData.subclass) {
+                    // Add subclass features
+                }
+                if (creatorData.feat) {
+                    allTraits.push({name: creatorData.feat, desc: "Feat description (expand in data)."});
+                }
+
+                let reviewHTML = `
+                    <h3 class="font-title text-2xl">${creatorData.name}</h3>
+                    <p>${creatorData.alignment} ${creatorData.subrace ? creatorData.subrace + ' ' : ''}${creatorData.race} ${creatorData.subclass ? creatorData.subclass + ' ' : ''}${creatorData.class} 1</p>
+                    <p><strong>Background:</strong> ${creatorData.background}</p>
+                    <p><strong>Speed:</strong> ${raceData.speed} ft. | <strong>Size:</strong> ${raceData.size}</p>
+                    <p><strong>Age:</strong> ${creatorData.age} | <strong>Height:</strong> ${creatorData.height} | <strong>Weight:</strong> ${creatorData.weight}</p>
+                    <p><strong>Eyes:</strong> ${creatorData.eyes} | <strong>Skin:</strong> ${creatorData.skin} | <strong>Hair:</strong> ${creatorData.hair}</p>
+                    <hr class="my-2 border-gray-600">
+                    <p><strong>Ability Scores:</strong> ${abilities}</p>
+                    <p><strong>Saving Throws:</strong> ${classData.savingThrows.join(', ')}</p>
+                    <p><strong>Skills:</strong> ${[...backgroundData.skillProficiencies, ...creatorData.proficiencies].join(', ')}</p>
+                    <p><strong>Languages:</strong> ${creatorData.languages.join(', ')}</p>
+                    <hr class="my-2 border-gray-600">
+                    <p><strong>Personality Trait:</strong> ${creatorData.personalityTrait}</p>
+                    <p><strong>Ideal:</strong> ${creatorData.ideal}</p>
+                    <p><strong>Bond:</strong> ${creatorData.bond}</p>
+                    <p><strong>Flaw:</strong> ${creatorData.flaw}</p>
+                    <hr class="my-2 border-gray-600">
+                    <h4 class="font-title text-xl mt-2">Features & Traits</h4>
+                    <ul>${allTraits.map(t => `<li><strong>${t.name}:</strong> ${t.desc}</li>`).join('')}</ul>
+                    <h4 class="font-title text-xl mt-2">Equipment</h4>
+                    <p>${creatorData.equipment.join(', ')}</p>
+                `;
+
+                if(creatorData.spells && creatorData.spells.cantrips.length > 0) {
+                    reviewHTML += `
+                        <hr class="my-2 border-gray-600">
+                        <h4 class="font-title text-xl mt-2">Spells</h4>
+                        <p><strong>Cantrips:</strong> ${creatorData.spells.cantrips.join(', ')}</p>
+                        <p><strong>1st-Level Spells:</strong> ${creatorData.spells.level1.join(', ')}</p>
+                    `;
+                }
+
+                if(creatorData.backstory) {
+                     reviewHTML += `
+                        <hr class="my-2 border-gray-600">
+                        <h4 class="font-title text-xl mt-2">Backstory</h4>
+                        <p>${creatorData.backstory}</p>
+                    `;
+                }
+
+                reviewOutput.innerHTML = reviewHTML;
+            };
+            
+            const resetCreator = () => {
+                creatorData = {};
+                document.getElementById('creator-char-name').value = '';
+                document.getElementById('backstory-input').value = '';
+                document.getElementById('age-input').value = '';
+                document.getElementById('height-input').value = '';
+                document.getElementById('weight-input').value = '';
+                document.getElementById('eyes-input').value = '';
+                document.getElementById('skin-input').value = '';
+                document.getElementById('hair-input').value = '';
+                // Reset selections
+                document.getElementById('race-select').selectedIndex = 0;
+                document.getElementById('subrace-select').innerHTML = '';
+                document.getElementById('subrace-select').classList.add('hidden');
+                document.getElementById('class-select').selectedIndex = 0;
+                document.getElementById('subclass-select').innerHTML = '';
+                document.getElementById('subclass-select').classList.add('hidden');
+                document.getElementById('background-select').selectedIndex = 0;
+                document.getElementById('alignment-select').selectedIndex = 0;
+                
+                populatePersonalityTraits();
+                populateLanguages();
+
+                initAbilityScores();
+                goToStep(1);
+            };
+
+            const initCreator = async () => {
+                loadDnDData();
+
+                const raceSelect = document.getElementById('race-select');
+                const subraceSelect = document.getElementById('subrace-select');
+                const classSelect = document.getElementById('class-select');
+                const subclassSelect = document.getElementById('subclass-select');
+                const backgroundSelect = document.getElementById('background-select');
+                const alignmentSelect = document.getElementById('alignment-select');
+                
+                raceSelect.innerHTML = '';
+                classSelect.innerHTML = '';
+                backgroundSelect.innerHTML = '';
+                alignmentSelect.innerHTML = '';
+
+                Object.keys(dndData.races).forEach(r => raceSelect.add(new Option(r,r)));
+                Object.keys(dndData.classes).forEach(c => classSelect.add(new Option(c,c)));
+                Object.keys(dndData.backgrounds).forEach(b => backgroundSelect.add(new Option(b,b)));
+                dndData.alignments.forEach(a => alignmentSelect.add(new Option(a,a)));
+
+                const updateRaceDesc = () => {
+                    const race = raceSelect.value;
+                    document.getElementById('race-description').innerText = dndData.races[race].description;
+                    subraceSelect.innerHTML = '';
+                    dndData.races[race].subraces.forEach(sr => subraceSelect.add(new Option(sr, sr)));
+                    subraceSelect.classList.toggle('hidden', dndData.races[race].subraces.length === 0);
+                    populateLanguages();
+                };
+                const updateClassDesc = () => {
+                    const cls = classSelect.value;
+                    document.getElementById('class-description').innerText = dndData.classes[cls].description;
+                    subclassSelect.innerHTML = '';
+                    if (dndData.classes[cls].subclassLevel === 1) {
+                        dndData.classes[cls].subclasses.forEach(sc => subclassSelect.add(new Option(sc, sc)));
+                        subclassSelect.classList.remove('hidden');
+                    } else {
+                        subclassSelect.classList.add('hidden');
+                    }
+                };
+                const updateBackgroundDesc = () => {
+                    const bg = backgroundSelect.value;
+                    document.getElementById('background-description').innerText = "Background description (expand data).";
+                    populatePersonalityTraits();
+                    populateLanguages();
+                };
+
+                raceSelect.onchange = updateRaceDesc;
+                classSelect.onchange = updateClassDesc;
+                backgroundSelect.onchange = updateBackgroundDesc;
+
+                updateRaceDesc();
+                updateClassDesc();
+                updateBackgroundDesc();
+                
+                initAbilityScores();
+                setupCreatorNav();
+            };
+
+            const initAbilityScores = () => {
+                const abilityScoresContainer = document.getElementById('ability-scores');
+                abilityScoresContainer.innerHTML = '';
+                const pointsRemainingEl = document.getElementById('points-remaining');
+                const abilities = ["Strength", "Dexterity", "Constitution", "Intelligence", "Wisdom", "Charisma"];
+                let points = 27;
+                creatorData.abilities = {};
+
+                const pointCost = { 8:0, 9:1, 10:2, 11:3, 12:4, 13:5, 14:7, 15:9 };
+
+                abilities.forEach(ability => {
+                    creatorData.abilities[ability] = { score: 8, modifier: -1 };
+                });
+                
+                const redrawScores = () => {
+                    pointsRemainingEl.innerText = points;
+                    abilityScoresContainer.innerHTML = '';
+                    abilities.forEach(ability => {
+                        const score = creatorData.abilities[ability].score;
+                        const modifier = Math.floor((score - 10) / 2);
+                        creatorData.abilities[ability].modifier = modifier;
+
+                        const container = document.createElement('div');
+                        container.className = 'p-2 border border-gray-600 rounded';
+
+                        const label = document.createElement('div');
+                        label.className = 'font-bold';
+                        label.innerText = ability;
+                        
+                        const scoreEl = document.createElement('span');
+                        scoreEl.className = 'text-2xl';
+                        scoreEl.innerText = score;
+                        
+                        const modifierEl = document.createElement('span');
+                        modifierEl.className = 'text-sm text-gray-400 ml-2';
+                        modifierEl.innerText = `(${modifier >= 0 ? '+' : ''}${modifier})`;
+
+                        const plusBtn = document.createElement('button');
+                        plusBtn.className = 'btn text-sm py-1 px-2 rounded ml-4';
+                        plusBtn.innerText = '+';
+                        plusBtn.disabled = score >= 15 || points < pointCost[score + 1] - pointCost[score];
+
+                        const minusBtn = document.createElement('button');
+                        minusBtn.className = 'btn text-sm py-1 px-2 rounded ml-2 bg-gray-600';
+                        minusBtn.innerText = '-';
+                        minusBtn.disabled = score <= 8;
+
+                        plusBtn.onclick = () => updateScore(ability, 1);
+                        minusBtn.onclick = () => updateScore(ability, -1);
+                        
+                        container.append(label, scoreEl, modifierEl, plusBtn, minusBtn);
+                        abilityScoresContainer.appendChild(container);
+                    });
+                };
+                
+                const updateScore = (ability, change) => {
+                    let currentScore = creatorData.abilities[ability].score;
+                    let newScore = currentScore + change;
+                    if (newScore < 8 || newScore > 15) return;
+
+                    let costChange = (pointCost[newScore] || 0) - (pointCost[currentScore] || 0);
+
+                    if (points - costChange >= 0) {
+                        points -= costChange;
+                        creatorData.abilities[ability].score = newScore;
+                        redrawScores();
+                    }
+                };
+                
+                redrawScores();
+            };
+
+            const populatePersonalityTraits = () => {
+                const container = document.getElementById('personality-traits-container');
+                container.innerHTML = '';
+                const background = dndData.backgrounds[document.getElementById('background-select').value];
+                if (!background) return;
+
+                const createSelect = (id, label, options) => {
+                    const div = document.createElement('div');
+                    div.className = 'mt-2';
+                    const labelEl = document.createElement('label');
+                    labelEl.className = 'font-bold';
+                    labelEl.innerText = label;
+                    const selectEl = document.createElement('select');
+                    selectEl.id = id;
+                    selectEl.className = 'input-field w-full p-2';
+                    options.forEach(opt => selectEl.add(new Option(opt, opt)));
+                    div.append(labelEl, selectEl);
+                    return div;
+                };
+
+                container.appendChild(createSelect('personality-trait-select', 'Personality Trait', background.personalityTraits));
+                container.appendChild(createSelect('ideal-select', 'Ideal', background.ideals));
+                container.appendChild(createSelect('bond-select', 'Bond', background.bonds));
+                container.appendChild(createSelect('flaw-select', 'Flaw', background.flaws));
+            };
+
+            const populateLanguages = () => {
+                const container = document.getElementById('languages-container');
+                container.innerHTML = '';
+                const race = dndData.races[creatorData.race || document.getElementById('race-select').value];
+                const background = dndData.backgrounds[creatorData.background || document.getElementById('background-select').value] || {languagesChoices: 0};
+
+                const numExtra = (race.languages.filter(l => l.includes("extra")).length || 0) + background.languagesChoices;
+
+                if (numExtra > 0) {
+                    const header = document.createElement('h4');
+                    header.className = 'font-title text-xl mb-2';
+                    header.innerText = `Choose ${numExtra} Additional Languages:`;
+                    container.appendChild(header);
+
+                    const grid = document.createElement('div');
+                    grid.className = 'checkbox-grid';
+                    container.appendChild(grid);
+
+                    dndData.languages.forEach(lang => {
+                        if (!race.languages.includes(lang) || lang.includes("extra")) {
+                            const label = document.createElement('label');
+                            label.className = 'flex items-center space-x-2 p-2 bg-gray-700 rounded';
+                            label.innerHTML = `<input type="checkbox" value="${lang}" class="input-field language-checkbox"> <span>${lang}</span>`;
+                            grid.appendChild(label);
+                        }
+                    });
+
+                    grid.addEventListener('change', (e) => {
+                        if (e.target.classList.contains('language-checkbox')) {
+                            const checked = container.querySelectorAll('.language-checkbox:checked');
+                            if (checked.length > numExtra) {
+                                e.target.checked = false;
+                                showModal(`You can only select ${numExtra} languages.`);
+                            }
+                        }
+                    });
+                }
+            };
+
+            const populateProficiencies = () => {
+                const container = document.getElementById('proficiencies-container');
+                container.innerHTML = '';
+                const classData = dndData.classes[creatorData.class];
+                const numChoices = classData.skillChoices.count;
+                const options = classData.skillChoices.options;
+
+                const header = document.createElement('h4');
+                header.className = 'font-title text-xl mb-2';
+                header.innerText = `Choose ${numChoices} Skill Proficiencies:`;
+                container.appendChild(header);
+
+                const grid = document.createElement('div');
+                grid.className = 'checkbox-grid';
+                container.appendChild(grid);
+
+                options.forEach(skill => {
+                    const label = document.createElement('label');
+                    label.className = 'flex items-center space-x-2 p-2 bg-gray-700 rounded';
+                    label.innerHTML = `<input type="checkbox" value="${skill}" class="input-field proficiency-checkbox"> <span>${skill}</span>`;
+                    grid.appendChild(label);
+                });
+
+                grid.addEventListener('change', (e) => {
+                    if (e.target.classList.contains('proficiency-checkbox')) {
+                        const checked = container.querySelectorAll('.proficiency-checkbox:checked');
+                        if (checked.length > numChoices) {
+                            e.target.checked = false;
+                            showModal(`You can only select ${numChoices} skills.`);
+                        }
+                    }
+                });
+            };
+
+            const populateFeats = () => {
+                const container = document.getElementById('feats-container');
+                container.innerHTML = '';
+                const race = creatorData.race;
+                const hasFeat = race === "Human" && creatorData.subrace === "Variant"; // Example for Variant Human
+
+                if (hasFeat) {
+                    const header = document.createElement('h4');
+                    header.className = 'font-title text-xl mb-2';
+                    header.innerText = `Choose 1 Feat:`;
+                    container.appendChild(header);
+
+                    const select = document.createElement('select');
+                    select.id = 'feat-select';
+                    select.className = 'input-field w-full p-2';
+                    dndData.feats.forEach(f => select.add(new Option(f, f)));
+                    container.appendChild(select);
+                }
+            };
+
+            const populateFeatsAndAbilities = () => {
+                const container = document.getElementById('feats-abilities-container');
+                container.innerHTML = '';
+                // Expand for class-specific abilities/origins if needed beyond subclass.
+            };
+
+            const populateEquipment = () => {
+                const container = document.getElementById('equipment-container');
+                container.innerHTML = '';
+                const classData = dndData.classes[creatorData.class];
+
+                const header = document.createElement('h4');
+                header.className = 'font-title text-xl mb-2';
+                header.innerText = `Choose Starting Equipment:`;
+                container.appendChild(header);
+
+                classData.equipmentChoices.forEach(choice => {
+                    const group = document.createElement('div');
+                    group.className = 'equipment-choice mb-4';
+                    const choiceHeader = document.createElement('p');
+                    choiceHeader.innerText = 'Choose one:';
+                    group.appendChild(choiceHeader);
+
+                    if (choice.options) {
+                        choice.options.forEach(opt => {
+                            const label = document.createElement('label');
+                            label.className = 'flex items-center space-x-2';
+                            label.innerHTML = `<input type="radio" name="equip-${choice.options.indexOf(opt)}" value="${opt}" class="input-field"> <span>${opt}</span>`;
+                            group.appendChild(label);
+                        });
+                    } else if (choice.fixed) {
+                        const p = document.createElement('p');
+                        p.innerText = choice.fixed;
+                        group.appendChild(p);
+                        creatorData.equipment.push(choice.fixed);
+                    }
+                    container.appendChild(group);
+                });
+            };
+
+            const populateSpells = () => {
+                const container = document.getElementById('spells-container');
+                container.innerHTML = '';
+                const classSpells = dndData.spells[creatorData.class];
+                if (classSpells) {
+                    // Cantrips
+                    if(classSpells.cantrips.length > 0) {
+                        const cantripContainer = document.createElement('div');
+                        const cantripHeader = document.createElement('h4');
+                        cantripHeader.className = 'font-title text-xl mb-2';
+                        const numCantrips = creatorData.class === 'Wizard' ? 3 : 2; // Example, expand per class
+                        cantripHeader.innerText = `Choose ${numCantrips} Cantrips:`;
+                        cantripContainer.appendChild(cantripHeader);
+                        const cantripGrid = document.createElement('div');
+                        cantripGrid.className = 'checkbox-grid';
+                        classSpells.cantrips.forEach(spell => {
+                             const label = document.createElement('label');
+                            label.className = 'flex items-center space-x-2 p-2 bg-gray-700 rounded';
+                            label.innerHTML = `<input type="checkbox" value="${spell}" class="input-field cantrip-checkbox"> <span>${spell}</span>`;
+                            cantripGrid.appendChild(label);
+                        });
+                        cantripContainer.appendChild(cantripGrid);
+                        container.appendChild(cantripContainer);
+
+                        cantripGrid.addEventListener('change', (e) => {
+                            if (e.target.classList.contains('cantrip-checkbox')) {
+                                const checked = cantripContainer.querySelectorAll('.cantrip-checkbox:checked');
+                                if (checked.length > numCantrips) {
+                                    e.target.checked = false;
+                                    showModal(`You can only select ${numCantrips} cantrips.`);
+                                }
+                            }
+                        });
+                    }
+                    
+                    // Level 1 Spells
+                    if(classSpells.level1.length > 0){
+                        const level1Container = document.createElement('div');
+                        const level1Header = document.createElement('h4');
+                        level1Header.className = 'font-title text-xl mb-2';
+                         const numLevel1 = creatorData.class === 'Wizard' ? 6 : 2; // Expand per class
+                        level1Header.innerText = `Choose ${numLevel1} 1st-Level Spells:`;
+                        level1Container.appendChild(level1Header);
+                        const level1Grid = document.createElement('div');
+                        level1Grid.className = 'checkbox-grid';
+                        classSpells.level1.forEach(spell => {
+                             const label = document.createElement('label');
+                            label.className = 'flex items-center space-x-2 p-2 bg-gray-700 rounded';
+                            label.innerHTML = `<input type="checkbox" value="${spell}" class="input-field level1-spell-checkbox"> <span>${spell}</span>`;
+                            level1Grid.appendChild(label);
+                        });
+                        level1Container.appendChild(level1Grid);
+                        container.appendChild(level1Container);
+
+                        level1Grid.addEventListener('change', (e) => {
+                            if (e.target.classList.contains('level1-spell-checkbox')) {
+                                const checked = level1Container.querySelectorAll('.level1-spell-checkbox:checked');
+                                if (checked.length > numLevel1) {
+                                    e.target.checked = false;
+                                    showModal(`You can only select ${numLevel1} 1st-level spells.`);
+                                }
+                            }
+                        });
+                    }
+                }
+            };
+            
              // --- INITIAL LOAD ---
             loadCharactersFromStorage();
+            loadMapsFromStorage();
+            initCreator(); 
             switchTab('session');
         });
     </script>
 </body>
 </html>
-
+```
