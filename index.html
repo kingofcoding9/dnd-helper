@@ -350,8 +350,8 @@
                     <div id="creator-step-8" class="creator-step">
                         <h3 class="font-title text-2xl mb-2">Step 8: Choose Your Spells</h3>
                         <div id="spells-container" class="space-y-4 max-h-96 overflow-y-auto"></div>
-                        <button id="creator-prev-8" class="btn font-title py-2 px-4 rounded-md bg-gray-600 hover:bg-gray-500">Previous</button>
-                        <button id="creator-next-8" class="btn font-title py-2 px-4 rounded-md">Next</button>
+                        <button id="creator-prev-8" class="btn font-title py-2 px-4 rounded-md bg-gray-600 hover:bg-gray-500 mt-4">Previous</button>
+                        <button id="creator-next-8" class="btn font-title py-2 px-4 rounded-md mt-4">Next</button>
                     </div>
                     
                     <!-- Step 9: Review -->
@@ -605,6 +605,8 @@
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             // --- Firebase Configuration ---
+            // IMPORTANT: Replace the placeholder values below with your actual Firebase project configuration.
+            // You can find this in your Firebase project settings.
             const firebaseConfig = {
                 apiKey: "YOUR_API_KEY",
                 authDomain: "YOUR_AUTH_DOMAIN",
@@ -832,6 +834,8 @@
                     userName.textContent = user.displayName;
                     loginBtn.classList.add('hidden');
                     userInfo.classList.remove('hidden');
+                    loadCharactersFromStorage();
+                    loadMapsFromStorage();
                     checkSubscription();
                 } else {
                     // User is signed out.
@@ -841,6 +845,8 @@
                     subscriptionActive = false;
                     apiCalls = 10;
                     updateAccountUI();
+                    loadCharactersFromStorage(); // Load from localStorage
+                    loadMapsFromStorage(); // Load from localStorage
                 }
             });
 
@@ -865,7 +871,7 @@
                     subscriptionActive = true;
                 } else {
                     subscriptionActive = false;
-                    apiCalls = doc.exists ? doc.data().apiCalls : 10;
+                    apiCalls = (doc.exists && doc.data().apiCalls !== undefined) ? doc.data().apiCalls : 10;
                 }
                 updateAccountUI();
             };
@@ -1098,7 +1104,8 @@
                 // Search the entire library, not just the current folder, for the map
                 let foundMap = null;
                 const findMapRecursive = (folder) => {
-                    const map = folder.maps.find(m => m.id === parseInt(mapId));
+                    if (foundMap) return;
+                    const map = folder.maps.find(m => m.id === mapId);
                     if (map) {
                         foundMap = map;
                         return;
@@ -1122,7 +1129,7 @@
                 ]);
                 if (confirmed) {
                     const removeMapRecursive = (folder) => {
-                        const index = folder.maps.findIndex(m => m.id === parseInt(mapId));
+                        const index = folder.maps.findIndex(m => m.id === mapId);
                         if (index > -1) {
                             folder.maps.splice(index, 1);
                             return true;
@@ -1141,7 +1148,7 @@
                 const name = await showPromptModal("Enter map name:");
                 if (name && name.trim() !== "") {
                     const currentFolder = getCurrentFolder();
-                    const mapId = Date.now();
+                    const mapId = Date.now().toString();
                     currentFolder.maps.push({ id: mapId, name, imageData: mapImageOutput.src });
                     await saveAndRenderMaps();
                 }
@@ -1243,9 +1250,16 @@
                     showModal("You have run out of free AI generations. Please subscribe for unlimited access.");
                     return "API limit reached.";
                 }
-
-                const apiKey = "YOUR_GEMINI_API_KEY"; // Replace with your Gemini API Key
-                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+                
+                // IMPORTANT: Replace with your Gemini API Key
+                const apiKey = "AIzaSyDKRFfQlTs4H33C7_ArQymSeGVlEPUxrZE"; 
+                if (apiKey === "YOUR_GEMINI_API_KEY") {
+                    console.error("Gemini API key is a placeholder. Please replace it.");
+                    return "ERROR: Gemini API key not configured. Please see the comment in the script.";
+                }
+                
+                // FIX: Corrected the model name in the API URL
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
                 const payload = {
                     contents: [{ parts: [{ text: prompt }] }],
                     systemInstruction: { parts: [{ text: systemPrompt }] },
@@ -1267,6 +1281,48 @@
                     return "There was an error communicating with the AI.";
                 }
             };
+
+            // --- IMAGE GENERATION ---
+            const generateImageAPI = async (prompt) => {
+                const apiKey = "AIzaSyDKRFfQlTs4H33C7_ArQymSeGVlEPUxrZE";
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${apiKey}`;
+                
+                const stylePrompt = "A detailed top-down battle map for D&D, fantasy, digital painting, playable game asset, high fantasy cartography. The perspective is directly overhead, like a blueprint. IMPORTANT: The map must be empty and contain absolutely no creatures, people, characters, animals, or monsters. Only generate the environment and terrain.";
+                const fullPrompt = `${stylePrompt} Scene: ${prompt}`;
+
+                const payload = { instances: [{ prompt: fullPrompt }], parameters: { "sampleCount": 1 } };
+                try {
+                    const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                    if (!response.ok) { throw new Error(`Image API call failed with status: ${response.status}`); }
+                    const result = await response.json();
+                    return result.predictions[0].bytesBase64Encoded;
+                } catch (error) {
+                    console.error("Error calling Image API:", error);
+                    return null;
+                }
+            };
+            
+            generateMapImageBtn.addEventListener('click', async () => {
+                const userPrompt = mapPromptInput.value || 'a generic dungeon room';
+                mapImageOutput.src = '';
+                const container = mapBoard;
+                container.innerHTML = '<div class="flex justify-center items-center h-full"><div class="loader"></div></div>';
+                
+                const base64Data = await generateImageAPI(userPrompt);
+                
+                container.innerHTML = ''; 
+                container.appendChild(mapImageOutput);
+                container.appendChild(mapGrid);
+                container.appendChild(mapTokenContainer);
+                
+                if (base64Data) {
+                    mapImageOutput.src = `data:image/png;base64,${base64Data}`;
+                    tokens = party.map(p => createToken(p.name, 'player'));
+                    renderTokens(mapTokenContainer, mapToggleTokens.checked, false);
+                } else {
+                    container.innerHTML = '<p class="text-red-500">Failed to generate map image.</p>';
+                }
+            });
 
             // --- CHARACTER & PARTY LOGIC ---
             const saveCharactersAndParty = async () => {
@@ -1294,9 +1350,9 @@
                         if (partyDoc.exists) party = partyDoc.data().party; else party = [];
                     } else {
                         const storedChars = localStorage.getItem('dmHelperCharacters');
-                        if (storedChars) characters = JSON.parse(storedChars);
+                        characters = storedChars ? JSON.parse(storedChars) : {};
                         const storedParty = localStorage.getItem('dmHelperParty');
-                        if (storedParty) party = JSON.parse(storedParty);
+                        party = storedParty ? JSON.parse(storedParty) : [];
                     }
                 } catch(e) {
                     console.error("Failed to load characters from storage:", e);
@@ -1362,7 +1418,10 @@
 
             const saveCharacter = async (charData) => {
                 const name = charData.name.trim();
-                if (!name) return;
+                if (!name) {
+                    showModal("Character name cannot be empty.");
+                    return;
+                }
                 characters[name] = charData;
                 await saveCharactersAndParty();
                 renderSavedCharacters();
@@ -1458,9 +1517,13 @@
                     const enemyGroups = enemyStr.split(', ');
                     
                     enemyGroups.forEach(group => {
-                        const [count, ...nameParts] = group.split('x ');
-                        const name = nameParts.join('x ').trim();
-                        lastGeneratedEnemies.push({ name, count: parseInt(count) });
+                        const parts = group.split('x ');
+                        if (parts.length < 2) return; // Skip malformed entries
+                        const count = parseInt(parts[0]);
+                        const name = parts.slice(1).join('x ').trim();
+                        if (isNaN(count) || !name) return; // Skip invalid entries
+
+                        lastGeneratedEnemies.push({ name, count });
 
                         const label = document.createElement('label');
                         label.className = 'flex items-center space-x-2';
@@ -1519,12 +1582,17 @@
                     }
                 });
                 
-                if (turnOrder.length === party.length) { return; }
+                if (turnOrder.length === party.length) { 
+                    showModal("No monsters selected for combat.");
+                    return;
+                }
                 
+                // Shuffle turn order
                 for (let i = turnOrder.length - 1; i > 0; i--) {
                     const j = Math.floor(Math.random() * (i + 1));
-                    [turnOrder[i], turnOrder[j] = [turnOrder[j], turnOrder[i]];
+                    [turnOrder[i], turnOrder[j]] = [turnOrder[j], turnOrder[i]];
                 }
+
 
                 TABS.combat.classList.remove('hidden');
                 switchTab('combat');
@@ -1578,7 +1646,11 @@
                     }
                 } else {
                     const player = party.find(p => p.name === participant.name);
-                    statBlockOutput.innerHTML = `<div class="p-4"><h3 class="text-2xl font-bold">${player.name}</h3><p>${player.class}</p><hr class="my-2 border-gray-600"><p>${player.notes}</p></div>`;
+                    if (player && player.notes) {
+                        statBlockOutput.innerHTML = `<div class="p-4"><h3 class="text-2xl font-bold">${player.name}</h3><p>${player.class}</p><hr class="my-2 border-gray-600"><p>${player.notes.replace(/\n/g, '<br>')}</p></div>`;
+                    } else if (player) {
+                         statBlockOutput.innerHTML = `<div class="p-4"><h3 class="text-2xl font-bold">${player.name}</h3><p>${player.class}</p></div>`;
+                    }
                 }
             };
             
@@ -1603,16 +1675,13 @@
                 statBlockOutput.innerHTML = `Select a creature from the turn tracker or press 'Next Turn'.`;
             });
             
-            // --- CHARACTER CREATOR OVERHAUL (Matching D&D Beyond Flow) ---
+            // --- CHARACTER CREATOR OVERHAUL ---
             const dndData = {}; 
             let creatorNavSetupDone = false;
             
             const loadDnDData = () => {
-                // Expanded D&D Data with subraces, subclasses, feats, languages, size, speed, age, more backgrounds, etc.
                 const skills = ["Acrobatics (Dex)", "Animal Handling (Wis)", "Arcana (Int)", "Athletics (Str)", "Deception (Cha)", "History (Int)", "Insight (Wis)", "Intimidation (Cha)", "Investigation (Int)", "Medicine (Wis)", "Nature (Int)", "Perception (Wis)", "Performance (Cha)", "Persuasion (Cha)", "Religion (Int)", "Sleight of Hand (Dex)", "Stealth (Dex)", "Survival (Wis)"];
-                
                 const languages = ["Common", "Dwarvish", "Elvish", "Giant", "Gnomish", "Goblin", "Halfling", "Orc", "Abyssal", "Celestial", "Draconic", "Deep Speech", "Infernal", "Primordial", "Sylvan", "Undercommon"];
-
                 const feats = ["Alert", "Athlete", "Actor", "Charger", "Crossbow Expert", "Defensive Duelist", "Dual Wielder", "Dungeon Delver", "Durable", "Elemental Adept", "Grappler", "Great Weapon Master", "Healer", "Heavily Armored", "Heavy Armor Master", "Inspiring Leader", "Keen Mind", "Lightly Armored", "Linguist", "Lucky", "Mage Slayer", "Magic Initiate", "Martial Adept", "Medium Armor Master", "Mobile", "Mounted Combatant", "Observant", "Polearm Master", "Resilient", "Ritual Caster", "Savage Attacker", "Sentinel", "Sharpshooter", "Shield Master", "Skilled", "Skulker", "Spell Sniper", "Tavern Brawler", "Tough", "War Caster", "Weapon Master"];
 
                 Object.assign(dndData, {
@@ -1622,376 +1691,85 @@
                     feats: feats,
                     races: {
                         "Dwarf": {
-                            description: "Stout and resilient.",
-                            subraces: [
-                                {
-                                    name: "Hill Dwarf",
-                                    ability_score_increase: "Your Wisdom score increases by 1.",
-                                    traits: [
-                                        { name: "Dwarven Toughness", desc: "Your hit point maximum increases by 1, and it increases by 1 every time you gain a level." }
-                                    ]
-                                }
-                            ],
-                            ability_score_increase: "Your Constitution score increases by 2.",
-                            age: "Dwarves mature at the same rate as humans, but they’re considered young until they reach the age of 50. On average, they live about 350 years.",
-                            alignment: "Most dwarves are lawful, believing firmly in the benefits of a well-­‐‑ordered society. They tend toward good as well, with a strong sense of fair play and a belief that everyone deserves to share in the benefits of a just order.",
-                            size: "Dwarves stand between 4 and 5 feet tall and average about 150 pounds. Your size is Medium.",
-                            speed: "Your base walking speed is 25 feet. Your speed is not reduced by wearing heavy armor.",
-                            languages: "You can speak, read, and write Common and Dwarvish. Dwarvish is full of hard consonants and guttural sounds, and those characteristics spill over into whatever other language a dwarf might speak.",
-                            traits: [
-                                { name: "Darkvision", desc: "Accustomed to life underground, you have superior vision in dark and dim conditions. You can see in dim light within 60 feet of you as if it were bright light, and in darkness as if it were dim light. You can’t discern color in darkness, only shades of gray." },
-                                { name: "Dwarven Resilience", desc: "You have advantage on saving throws against poison, and you have resistance against poison damage." },
-                                { name: "Dwarven Combat Training", desc: "You have proficiency with the battleaxe, handaxe, light hammer, and warhammer." },
-                                { name: "Tool Proficiency", desc: "You gain proficiency with the artisan’s tools of your choice: smith’s tools, brewer’s supplies, or mason’s tools." },
-                                { name: "Stonecunning", desc: "Whenever you make an Intelligence (History) check related to the origin of stonework, you are considered proficient in the History skill and add double your proficiency bonus to the check, instead of your normal proficiency bonus." }
-                            ]
+                            description: "Bold and hardy, dwarves are known as skilled warriors, miners, and workers of stone and metal.",
+                            subraces: [ { name: "Hill Dwarf", ability_score_increase: "Wis+1", traits: [{ name: "Dwarven Toughness", desc: "Your hit point maximum increases by 1, and it increases by 1 every time you gain a level." }] }, { name: "Mountain Dwarf", ability_score_increase: "Str+2", traits: [{ name: "Dwarven Armor Training", desc: "You have proficiency with light and medium armor." }] } ],
+                            ability_score_increase: "Con+2", speed: 25, size: "Medium", languages: "You can speak, read, and write Common and Dwarvish.",
+                            traits: [ { name: "Darkvision", desc: "See in dim light within 60 feet as if it were bright light, and in darkness as if it were dim light." }, { name: "Dwarven Resilience", desc: "Advantage on saving throws against poison, and resistance against poison damage." }, { name: "Dwarven Combat Training", desc: "Proficiency with the battleaxe, handaxe, light hammer, and warhammer." }, { name: "Tool Proficiency", desc: "Proficiency with smith's tools, brewer's supplies, or mason's tools." }, { name: "Stonecunning", desc: "Double proficiency bonus on Intelligence (History) checks related to the origin of stonework." } ]
                         },
                         "Elf": {
-                            description: "Graceful and long-lived.",
-                            subraces: [
-                                {
-                                    name: "High Elf",
-                                    ability_score_increase: "Your Intelligence score increases by 1.",
-                                    traits: [
-                                        { name: "Elf Weapon Training", desc: "You have proficiency with the longsword, shortsword, shortbow, and longbow." },
-                                        { name: "Cantrip", desc: "You know one cantrip of your choice from the wizard spell list. Intelligence is your spellcasting ability for it." },
-                                        { name: "Extra Language", desc: "You can speak, read, and write one extra language of your choice." }
-                                    ]
-                                }
-                            ],
-                            ability_score_increase: "Your Dexterity score increases by 2.",
-                            age: "Although elves reach physical maturity at about the same age as humans, the elven understanding of adulthood goes beyond physical growth to encompass worldly experience. An elf typically claims adulthood and an adult name around the age of 100 and can live to be 750 years old.",
-                            alignment: "Elves love freedom, variety, and self-expression, so they lean strongly toward the gentler aspects of chaos. They value and protect others’ freedom as well as their own, and they are more often good than not.",
-                            size: "Elves range from under 5 to over 6 feet tall and have slender builds. Your size is Medium.",
-                            speed: "Your base walking speed is 30 feet.",
-                            languages: "You can speak, read, and write Common and Elvish. Elvish is fluid, with subtle intonations and intricate grammar. Elven literature is rich and varied, and their songs and poems are famous among other races. Many bards learn their language so they can add Elvish ballads to their repertoires.",
-                            traits: [
-                                { name: "Darkvision", desc: "Accustomed to twilit forests and the night sky, you have superior vision in dark and dim conditions. You can see in dim light within 60 feet of you as if it were bright light, and in darkness as if it were dim light. You can’t discern color in darkness, only shades of gray." },
-                                { name: "Keen Senses", desc: "You have proficiency in the Perception skill." },
-                                { name: "Fey Ancestry", desc: "You have advantage on saving throws against being charmed, and magic can’t put you to sleep." },
-                                { name: "Trance", desc: "Elves don’t need to sleep. Instead, they meditate deeply, remaining semiconscious, for 4 hours a day. (The Common word for such meditation is “trance.”) While meditating, you can dream after a fashion; such dreams are actually mental exercises that have become reflexive through years of practice. After resting in this way, you gain the same benefit that a human does from 8 hours of sleep." }
-                            ]
+                            description: "Elves are a magical people of otherworldly grace, living in the world but not entirely part of it.",
+                            subraces: [ { name: "High Elf", ability_score_increase: "Int+1", traits: [{ name: "Elf Weapon Training", desc: "Proficiency with longsword, shortsword, shortbow, and longbow." }, { name: "Cantrip", desc: "You know one cantrip of your choice from the wizard spell list. Intelligence is your spellcasting ability for it." }, { name: "Extra Language", desc: "You can speak, read, and write one extra language." }] }, { name: "Wood Elf", ability_score_increase: "Wis+1", traits: [{ name: "Elf Weapon Training", desc: "Proficiency with longsword, shortsword, shortbow, and longbow." }, { name: "Fleet of Foot", desc: "Your base walking speed increases to 35 feet." }, { name: "Mask of the Wild", desc: "You can attempt to hide even when you are only lightly obscured." }] } ],
+                            ability_score_increase: "Dex+2", speed: 30, size: "Medium", languages: "You can speak, read, and write Common and Elvish.",
+                            traits: [ { name: "Darkvision", desc: "See in dim light within 60 feet as if it were bright light, and in darkness as if it were dim light." }, { name: "Keen Senses", desc: "Proficiency in the Perception skill." }, { name: "Fey Ancestry", desc: "Advantage on saving throws against being charmed, and magic can't put you to sleep." }, { name: "Trance", desc: "Meditate for 4 hours for the same benefit as 8 hours of sleep." } ]
                         },
                         "Halfling": {
-                            description: "Small and good-natured.",
-                            subraces: [
-                                {
-                                    name: "Lightfoot",
-                                    ability_score_increase: "Your Charisma score increases by 1.",
-                                    traits: [
-                                        { name: "Naturally Stealthy", desc: "You can attempt to hide even when you are obscured only by a creature that is at least one size larger than you." }
-                                    ]
-                                }
-                            ],
-                            ability_score_increase: "Your Dexterity score increases by 2.",
-                            age: "A halfling reaches adulthood at the age of 20 and generally lives into the middle of his or her second century.",
-                            alignment: "Most halflings are lawful good. As a rule, they are good-hearted and kind, hate to see others in pain, and have no tolerance for oppression. They are also very orderly and traditional, leaning heavily on the support of their community and the comfort of their old ways.",
-                            size: "Halflings average about 3 feet tall and weigh about 40 pounds. Your size is Small.",
-                            speed: "Your base walking speed is 25 feet.",
-                            languages: "You can speak, read, and write Common and Halfling. The Halfling language isn’t secret, but halflings are loath to share it with others. They write very little, so they don’t have a rich body of literature. Their oral tradition, however, is very strong. Almost all halflings speak Common to converse with the people in whose lands they dwell or through which they are traveling.",
-                            traits: [
-                                { name: "Lucky", desc: "When you roll a 1 on an attack roll, ability check, or saving throw, you can reroll the die and must use the new roll." },
-                                { name: "Brave", desc: "You have advantage on saving throws against being frightened." },
-                                { name: "Halfling Nimbleness", desc: "You can move through the space of any creature that is of a size larger than yours." }
-                            ]
+                            description: "The comforts of home are the goals of most halflings' lives: a place to settle in peace and quiet, far from marauding monsters and clashing armies.",
+                            subraces: [ { name: "Lightfoot", ability_score_increase: "Cha+1", traits: [{ name: "Naturally Stealthy", desc: "You can attempt to hide even when you are obscured only by a creature that is at least one size larger than you." }] }, { name: "Stout", ability_score_increase: "Con+1", traits: [{ name: "Stout Resilience", desc: "You have advantage on saving throws against poison, and you have resistance against poison damage." }] } ],
+                            ability_score_increase: "Dex+2", speed: 25, size: "Small", languages: "You can speak, read, and write Common and Halfling.",
+                            traits: [ { name: "Lucky", desc: "When you roll a 1 on an attack roll, ability check, or saving throw, you can reroll the die and must use the new roll." }, { name: "Brave", desc: "Advantage on saving throws against being frightened." }, { name: "Halfling Nimbleness", desc: "You can move through the space of any creature that is of a size larger than yours." } ]
                         },
                         "Human": {
-                            description: "Versatile and ambitious.",
-                            subraces: [],
-                            ability_score_increase: "Your ability scores each increase by 1.",
-                            age: "Humans reach adulthood in their late teens and live less than a century.",
-                            alignment: "Humans tend toward no particular alignment. The best and the worst are found among them.",
-                            size: "Humans vary widely in height and build, from barely 5 feet to well over 6 feet tall. Your size is Medium.",
-                            speed: "Your base walking speed is 30 feet.",
-                            languages: "You can speak, read, and write Common and one extra language of your choice. Humans typically learn the languages of other peoples they deal with, including obscure dialects. They are fond of sprinkling their speech with words borrowed from other tongues: Orc curses, Elvish musical expressions, Dwarvish military phrases, and so on.",
-                            traits: []
+                            description: "Humans are the most adaptable and ambitious people among the common races. Whatever drives them, humans are the innovators, the achievers, and the pioneers of the worlds.",
+                            subraces: [], ability_score_increase: "All+1", speed: 30, size: "Medium", languages: "You can speak, read, and write Common and one extra language of your choice.", traits: []
                         },
                         "Dragonborn": {
-                            description: "A noble, draconic humanoid.",
-                            subraces: [],
-                            ability_score_increase: "Your Strength score increases by 2, and your Charisma score increases by 1.",
-                            age: "Young dragonborn grow quickly. They walk hours after hatching, attain the size and development of a 10-year-old human child by the age of 3, and reach adulthood by 15. They live to be around 80.",
-                            alignment: "Dragonborn tend to extremes, making a conscious choice for one side or the other in the cosmic war between good and evil. Most dragonborn are good, but those who side with evil can be terrible villains.",
-                            size: "Dragonborn are taller and heavier than humans, standing well over 6 feet tall and averaging almost 250 pounds. Your size is Medium.",
-                            speed: "Your base walking speed is 30 feet.",
-                            languages: "You can speak, read, and write Common and Draconic. Draconic is thought to be one of the oldest languages and is often used in the study of magic. The language sounds harsh to most other creatures and includes numerous hard consonants and sibilants.",
-                            traits: [
-                                { name: "Draconic Ancestry", desc: "You have draconic ancestry. Choose one type of dragon from the Draconic Ancestry table. Your breath weapon and damage resistance are determined by the dragon type, as shown in the table." },
-                                { name: "Breath Weapon", desc: "You can use your action to exhale destructive energy. Your draconic ancestry determines the size, shape, and damage type of the exhalation. When you use your breath weapon, each creature in the area of the exhalation must make a saving throw, the type of which is determined by your draconic ancestry. The DC for this saving throw equals 8 + your Constitution modifier + your proficiency bonus. A creature takes 2d6 damage on a failed save, and half as much damage on a successful one. The damage increases to 3d6 at 6th level, 4d6 at 11th level, and 5d6 at 16th level. After you use your breath weapon, you can’t use it again until you complete a short or long rest." },
-                                { name: "Damage Resistance", desc: "You have resistance to the damage type associated with your draconic ancestry." }
-                            ]
+                            description: "Born of dragons, as their name proclaims, dragonborn walk proudly through a world that greets them with fearful incomprehension.",
+                            subraces: [], ability_score_increase: "Str+2, Cha+1", speed: 30, size: "Medium", languages: "You can speak, read, and write Common and Draconic.",
+                            traits: [ { name: "Draconic Ancestry", desc: "Choose a dragon type. Your breath weapon and damage resistance are determined by it." }, { name: "Breath Weapon", desc: "Use an action to exhale destructive energy. The damage and save type are based on your ancestry." }, { name: "Damage Resistance", desc: "You have resistance to the damage type associated with your draconic ancestry." } ]
                         },
                         "Gnome": {
-                            description: "Small and clever inventors.",
-                            subraces: [
-                                {
-                                    name: "Rock Gnome",
-                                    ability_score_increase: "Your Constitution score increases by 1.",
-                                    traits: [
-                                        { name: "Artificer’s Lore", desc: "Whenever you make an Intelligence (History) check related to magic items, alchemical objects, or technological devices, you can add twice your proficiency bonus, instead of any proficiency bonus you normally apply." },
-                                        { name: "Tinker", desc: "You have proficiency with artisan’s tools (tinker’s tools). Using those tools, you can spend 1 hour and 10 gp worth of materials to construct a Tiny clockwork device (AC 5, 1 hp). The device ceases to function after 24 hours (unless you spend 1 hour repairing it to keep the device functioning), or when you use your action to dismantle it; at that time, you can reclaim the materials used to create it. You can have up to three such devices active at a time. When you create a device, choose one of the following options: Clockwork Toy, Fire Starter, Music Box." }
-                                    ]
-                                }
-                            ],
-                            ability_score_increase: "Your Intelligence score increases by 2.",
-                            age: "Gnomes mature at the same rate humans do, and most are expected to settle down into an adult life by around age 40. They can live 350 to almost 500 years.",
-                            alignment: "Gnomes are most often good. Those who tend toward law are sages, engineers, researchers, scholars, investigators, or inventors. Those who tend toward chaos are minstrels, tricksters, wanderers, or fanciful jewelers. Gnomes are good-hearted, and even the tricksters among them are more playful than vicious.",
-                            size: "Gnomes are between 3 and 4 feet tall and average about 40 pounds. Your size is Small.",
-                            speed: "Your base walking speed is 25 feet.",
-                            languages: "You can speak, read, and write Common and Gnomish. The Gnomish language, which uses the Dwarvish script, is renowned for its technical treatises and its catalogs of knowledge about the natural world.",
-                            traits: [
-                                { name: "Darkvision", desc: "Accustomed to life underground, you have superior vision in dark and dim conditions. You can see in dim light within 60 feet of you as if it were bright light, and in darkness as if it were dim light. You can’t discern color in darkness, only shades of gray." },
-                                { name: "Gnome Cunning", desc: "You have advantage on all Intelligence, Wisdom, and Charisma saving throws against magic." }
-                            ]
+                            description: "A gnome's energy and enthusiasm for living shines through every inch of his or her tiny body.",
+                            subraces: [ { name: "Rock Gnome", ability_score_increase: "Con+1", traits: [{ name: "Artificer's Lore", desc: "Double proficiency on History checks related to magic, alchemical, or technological items." }, { name: "Tinker", desc: "Create a Tiny clockwork device." }] } ],
+                            ability_score_increase: "Int+2", speed: 25, size: "Small", languages: "You can speak, read, and write Common and Gnomish.",
+                            traits: [ { name: "Darkvision", desc: "See in dim light within 60 feet as if it were bright light, and in darkness as if it were dim light." }, { name: "Gnome Cunning", desc: "Advantage on all Intelligence, Wisdom, and Charisma saving throws against magic." } ]
                         },
                         "Half-Elf": {
-                            description: "A charismatic mix of human and elf.",
-                            subraces: [],
-                            ability_score_increase: "Your Charisma score increases by 2, and two other ability scores of your choice increase by 1.",
-                            age: "Half-elves mature at the same rate humans do and reach adulthood around the age of 20. They live much longer than humans, however, often exceeding 180 years.",
-                            alignment: "Half-elves share the chaotic bent of their elven heritage. They value both personal freedom and creative expression, demonstrating neither love of leaders nor desire for followers. They chafe at rules, resent others’ demands, and sometimes prove unreliable, or at least unpredictable.",
-                            size: "Half-elves are about the same size as humans, ranging from 5 to 6 feet tall. Your size is Medium.",
-                            speed: "Your base walking speed is 30 feet.",
-                            languages: "You can speak, read, and write Common, Elvish, and one extra language of your choice.",
-                            traits: [
-                                { name: "Darkvision", desc: "Thanks to your elf blood, you have superior vision in dark and dim conditions. You can see in dim light within 60 feet of you as if it were bright light, and in darkness as if it were dim light. You can’t discern color in darkness, only shades of gray." },
-                                { name: "Fey Ancestry", desc: "You have advantage on saving throws against being charmed, and magic can’t put you to sleep." },
-                                { name: "Skill Versatility", desc: "You gain proficiency in two skills of your choice." }
-                            ]
+                            description: "Half-elves combine what some say are the best qualities of their elf and human parents.",
+                            subraces: [], ability_score_increase: "Cha+2, two others +1", speed: 30, size: "Medium", languages: "You can speak, read, and write Common, Elvish, and one extra language of your choice.",
+                            traits: [ { name: "Darkvision", desc: "See in dim light within 60 feet as if it were bright light, and in darkness as if it were dim light." }, { name: "Fey Ancestry", desc: "Advantage on saving throws against being charmed, and magic can't put you to sleep." }, { name: "Skill Versatility", desc: "Gain proficiency in two skills of your choice." } ]
                         },
                         "Half-Orc": {
-                            description: "Strong and fierce.",
-                            subraces: [],
-                            ability_score_increase: "Your Strength score increases by 2, and your Constitution score increases by 1.",
-                            age: "Half-orcs reach adulthood at age 14 and live up to 75 years.",
-                            alignment: "Half-orcs inherit a tendency toward chaos from their orc parents and are not strongly inclined toward good. Half-orcs raised among orcs and willing to live out their lives among them are usually evil.",
-                            size: "Half-orcs are somewhat larger and bulkier than humans, and they range from 5 to well over 6 feet tall. Your size is Medium.",
-                            speed: "Your base walking speed is 30 feet.",
-                            languages: "You can speak, read, and write Common and Orc. Orc is a harsh, grating language with hard consonants. It has no script of its own but is written in the Dwarvish script.",
-                            traits: [
-                                { name: "Darkvision", desc: "Thanks to your orc blood, you have superior vision in dark and dim conditions. You can see in dim light within 60 feet of you as if it were bright light, and in darkness as if it were dim light. You can’t discern color in darkness, only shades of gray." },
-                                { name: "Menacing", desc: "You gain proficiency in the Intimidation skill." },
-                                { name: "Relentless Endurance", desc: "When you are reduced to 0 hit points but not killed outright, you can drop to 1 hit point instead. You can’t use this feature again until you finish a long rest." },
-                                { name: "Savage Attacks", desc: "When you score a critical hit with a melee weapon attack, you can roll one of the weapon’s damage dice one additional time and add it to the extra damage of the critical hit." }
-                            ]
+                            description: "Whether united under the leadership of a powerful warlock or having fought their way out of servitude, half-orcs must be strong to survive.",
+                            subraces: [], ability_score_increase: "Str+2, Con+1", speed: 30, size: "Medium", languages: "You can speak, read, and write Common and Orc.",
+                            traits: [ { name: "Darkvision", desc: "See in dim light within 60 feet as if it were bright light, and in darkness as if it were dim light." }, { name: "Menacing", desc: "Proficiency in the Intimidation skill." }, { name: "Relentless Endurance", desc: "When reduced to 0 HP but not killed, you can drop to 1 HP instead (once per long rest)." }, { name: "Savage Attacks", desc: "On a critical hit with a melee weapon, roll one of the weapon's damage dice one additional time." } ]
                         },
                         "Tiefling": {
-                            description: "Descended from infernal heritage.",
-                            subraces: [],
-                            ability_score_increase: "Your Intelligence score increases by 1, and your Charisma score increases by 2.",
-                            age: "Tieflings mature at the same rate as humans but live a few years longer.",
-                            alignment: "Tieflings might not have an innate tendency toward evil, but many of them end up there. Evil or not, an independent nature inclines many tieflings toward a chaotic alignment.",
-                            size: "Tieflings are about the same size and build as humans. Your size is Medium.",
-                            speed: "Your base walking speed is 30 feet.",
-                            languages: "You can speak, read, and write Common and Infernal.",
-                            traits: [
-                                { name: "Darkvision", desc: "Thanks to your infernal heritage, you have superior vision in dark and dim conditions. You can see in dim light within 60 feet of you as if it were bright light, and in darkness as if it were dim light. You can’t discern color in darkness, only shades of gray." },
-                                { name: "Hellish Resistance", desc: "You have resistance to fire damage." },
-                                { name: "Infernal Legacy", desc: "You know the thaumaturgy cantrip. When you reach 3rd level, you can cast the hellish rebuke spell as a 2nd-level spell once with this trait and regain the ability to do so when you finish a long rest. When you reach 5th level, you can cast the darkness spell once with this trait and regain the ability to do so when you finish a long rest. Charisma is your spellcasting ability for these spells." }
-                            ]
+                            description: "To be greeted with stares and whispers, to suffer violence and insult on the street, to see mistrust and fear in every eye: this is the lot of the tiefling.",
+                            subraces: [], ability_score_increase: "Int+1, Cha+2", speed: 30, size: "Medium", languages: "You can speak, read, and write Common and Infernal.",
+                            traits: [ { name: "Darkvision", desc: "See in dim light within 60 feet as if it were bright light, and in darkness as if it were dim light." }, { name: "Hellish Resistance", desc: "You have resistance to fire damage." }, { name: "Infernal Legacy", desc: "You know the thaumaturgy cantrip. At 3rd level, you can cast hellish rebuke once per long rest. At 5th, you can cast darkness once per long rest." } ]
                         }
                     },
                     classes: {
-                        "Barbarian": {
-                            description: "A fierce warrior of primitive background who can enter a battle rage.",
-                            hit_die: "1d12 per barbarian level",
-                            primary_ability: "Strength",
-                            saves: ["Strength", "Constitution"],
-                            proficiencies: {
-                                armor: "Light armor, medium armor, shields",
-                                weapons: "Simple weapons, martial weapons",
-                                tools: "None",
-                                skills: { count: 2, options: ["Animal Handling", "Athletics", "Intimidation", "Nature", "Perception", "Survival"] }
-                            },
-                            equipment_choices: [
-                                { options: ["a greataxe", "any martial melee weapon"] },
-                                { options: ["two handaxes", "any simple weapon"] },
-                                { fixed: "An explorer's pack and four javelins" }
-                            ],
-                            features: [
-                                { name: "Rage", desc: "In battle, you fight with primal ferocity. On your turn, you can enter a rage as a bonus action. While raging, you gain the following benefits if you aren't wearing heavy armor: • You have advantage on Strength checks and Strength saving throws. • When you make a melee weapon attack using Strength, you gain a bonus to the damage roll that increases as you gain levels as a barbarian, as shown in the Rage Damage column of the Barbarian table. • You have resistance to bludgeoning, piercing, and slashing damage. If you are able to cast spells, you can't cast them or concentrate on them while raging. Your rage lasts for 1 minute. It ends early if you are knocked unconscious or if your turn ends and you haven't attacked a hostile creature since your last turn or taken damage since then. You can also end your rage on your turn as a bonus action. Once you have raged the number of times shown for your barbarian level in the Rages column of the Barbarian table, you must finish a long rest before you can rage again." },
-                                { name: "Unarmored Defense", desc: "While you are not wearing any armor, your Armor Class equals 10 + your Dexterity modifier + your Constitution modifier. You can use a shield and still gain this benefit." }
-                            ],
-                            subclass_level: 3,
-                            subclasses: ["Path of the Berserker", "Path of the Totem Warrior"],
-                            spellcasting: false
-                        },
-                        "Bard": {
-                            description: "An inspiring magician whose power echoes the music of creation.",
-                            hit_die: "1d8 per bard level",
-                            primary_ability: "Charisma",
-                            saves: ["Dexterity", "Charisma"],
-                            proficiencies: {
-                                armor: "Light armor",
-                                weapons: "Simple weapons, hand crossbows, longswords, rapiers, shortswords",
-                                tools: "Three musical instruments of your choice",
-                                skills: { count: 3, options: skills }
-                            },
-                            equipment_choices: [
-                                { options: ["a rapier", "a longsword", "any simple weapon"] },
-                                { options: ["a diplomat's pack", "an entertainer's pack"] },
-                                { options: ["a lute", "any other musical instrument"] },
-                                { fixed: "Leather armor and a dagger" }
-                            ],
-                            features: [
-                                { name: "Spellcasting", desc: "You have learned to untangle and reshape the fabric of reality in harmony with your wishes and music. Your spells are part of your vast repertoire, magic that you can tune to different situations." },
-                                { name: "Bardic Inspiration", desc: "You can inspire others through stirring words or music. To do so, you use a bonus action on your turn to choose one creature other than yourself within 60 feet of you who can hear you. That creature gains one Bardic Inspiration die, a d6. Once within the next 10 minutes, the creature can roll the die and add the number rolled to one ability check, attack roll, or saving throw it makes. The creature can wait until after it rolls the d20 before deciding to use the Bardic Inspiration die, but must decide before the DM says whether the roll succeeds or fails. Once the Bardic Inspiration die is rolled, it is lost. A creature can have only one Bardic Inspiration die at a time. You can use this feature a number of times equal to your Charisma modifier (a minimum of once). You regain any expended uses when you finish a long rest. Your Bardic Inspiration die changes when you reach certain levels in this class. The die becomes a d8 at 5th level, a d10 at 10th level, and a d12 at 15th level." }
-                            ],
-                            subclass_level: 3,
-                            subclasses: ["College of Lore", "College of Valor"],
-                            spellcasting: true,
-                            spell_details: { cantrips_known: 2, spells_known: 5 }
-                        },
-                        "Cleric": {
-                            description: "A priestly champion who wields divine magic in service of a higher power.",
-                            hit_die: "1d8 per cleric level",
-                            primary_ability: "Wisdom",
-                            saves: ["Wisdom", "Charisma"],
-                            proficiencies: {
-                                armor: "Light armor, medium armor, shields",
-                                weapons: "All simple weapons",
-                                tools: "None",
-                                skills: { count: 2, options: ["History", "Insight", "Medicine", "Persuasion", "Religion"] }
-                            },
-                            equipment_choices: [
-                                { options: ["a mace", "a warhammer (if proficient)"] },
-                                { options: ["scale mail", "leather armor", "chain mail (if proficient)"] },
-                                { options: ["a light crossbow and 20 bolts", "any simple weapon"] },
-                                { options: ["a priest's pack", "an explorer's pack"] },
-                                { fixed: "A shield and a holy symbol" }
-                            ],
-                            features: [
-                                { name: "Spellcasting", desc: "As a conduit for divine power, you can cast cleric spells." },
-                                { name: "Divine Domain", desc: "Choose one domain related to your deity: Knowledge, Life, Light, Nature, Tempest, Trickery, or War. Each domain is detailed at the end of the class description, and each one provides examples of gods associated with it. Your choice grants you domain spells and other features when you choose it at 1st level. It also grants you additional ways to use Channel Divinity when you gain that feature at 2nd level, and additional benefits at 6th, 8th, and 17th levels." }
-                            ],
-                            subclass_level: 1,
-                            subclasses: ["Knowledge Domain", "Life Domain", "Light Domain", "Nature Domain", "Tempest Domain", "Trickery Domain", "War Domain"],
-                            spellcasting: true,
-                            spell_details: { cantrips_known: 3, spells_known: "All (prepared)" }
-                        },
-                        // Expand similarly for other classes: Druid, Fighter, Monk, Paladin, Ranger, Rogue, Sorcerer, Warlock, Wizard.
-                        "Druid": {
-                            description: "A priest of the Old Faith, wielding the powers of nature — moonlight and plant growth, fire and lightning — and adopting animal forms.",
-                            hit_die: "1d8 per druid level",
-                            primary_ability: "Wisdom",
-                            saves: ["Intelligence", "Wisdom"],
-                            proficiencies: {
-                                armor: "Light armor, medium armor, shields (druids will not wear armor or use shields made of metal)",
-                                weapons: "Clubs, daggers, darts, javelins, maces, quarterstaffs, scimitars, sickles, slings, spears",
-                                tools: "Herbalism kit",
-                                skills: { count: 2, options: ["Arcana", "Animal Handling", "Insight", "Medicine", "Nature", "Perception", "Religion", "Survival"] }
-                            },
-                            equipment_choices: [
-                                { options: ["a wooden shield", "any simple weapon"] },
-                                { options: ["a scimitar", "any simple melee weapon"] },
-                                { fixed: "Leather armor, an explorer's pack, and a druidic focus" }
-                            ],
-                            features: [
-                                { name: "Druidic", desc: "You know Druidic, the secret language of druids. You can speak the language and use it to leave hidden messages. You and others who know this language automatically spot such a message. Others spot the message's presence with a successful DC 15 Wisdom (Perception) check but can't decipher it without magic." },
-                                { name: "Spellcasting", desc: "Drawing on the divine essence of nature itself, you can cast spells to shape that essence to your will." }
-                            ],
-                            subclass_level: 2,
-                            subclasses: ["Circle of the Land", "Circle of the Moon"],
-                            spellcasting: true,
-                            spell_details: { cantrips_known: 2, spells_known: "All (prepared)" }
-                        },
-                        "Fighter": {
-                            description: "A master of martial combat, skilled with a variety of weapons and armor.",
-                            hit_die: "1d10 per fighter level",
-                            primary_ability: "Strength or Dexterity",
-                            saves: ["Strength", "Constitution"],
-                            proficiencies: {
-                                armor: "All armor, shields",
-                                weapons: "Simple weapons, martial weapons",
-                                tools: "None",
-                                skills: { count: 2, options: ["Acrobatics", "Animal Handling", "Athletics", "History", "Insight", "Intimidation", "Perception", "Survival"] }
-                            },
-                            equipment_choices: [
-                                { options: ["chain mail", "leather armor, longbow, and 20 arrows"] },
-                                { options: ["a martial weapon and a shield", "two martial weapons"] },
-                                { options: ["a light crossbow and 20 bolts", "two handaxes"] },
-                                { options: ["a dungeoneer's pack", "an explorer's pack"] }
-                            ],
-                            features: [
-                                { name: "Fighting Style", desc: "You adopt a particular style of fighting as your specialty. Choose one of the following options: Archery, Defense, Dueling, Great Weapon Fighting, Protection, Two-Weapon Fighting." },
-                                { name: "Second Wind", desc: "You have a limited well of stamina that you can draw on to protect yourself from harm. On your turn, you can use a bonus action to regain hit points equal to 1d10 + your fighter level. Once you use this feature, you must finish a short or long rest before you can use it again." }
-                            ],
-                            subclass_level: 3,
-                            subclasses: ["Champion", "Battle Master", "Eldritch Knight"],
-                            spellcasting: false
-                        },
-                        // Continue expanding for Monk, Paladin, Ranger, Rogue, Sorcerer, Warlock, Wizard with similar structure.
+                        "Barbarian": { description: "A fierce warrior who can enter a battle rage.", hit_die: 12, primary_ability: "Strength", saves: ["Strength", "Constitution"], proficiencies: { armor: ["Light armor", "medium armor", "shields"], weapons: ["Simple weapons", "martial weapons"], skills: { count: 2, options: ["Animal Handling", "Athletics", "Intimidation", "Nature", "Perception", "Survival"] } }, equipment_choices: [ { options: ["a greataxe", "any martial melee weapon"] }, { options: ["two handaxes", "any simple weapon"] }, { fixed: "An explorer's pack and four javelins" } ], features: [{ name: "Rage", desc: "As a bonus action, enter a rage for 1 min. Gain advantage on Str checks/saves, +2 damage on Str melee attacks, and resistance to bludgeoning, piercing, and slashing damage." }, { name: "Unarmored Defense", desc: "While not wearing armor, your AC is 10 + Dex modifier + Con modifier." }], subclass_level: 3, subclasses: ["Path of the Berserker", "Path of the Totem Warrior"], spellcasting: false },
+                        "Bard": { description: "An inspiring magician whose power echoes the music of creation.", hit_die: 8, primary_ability: "Charisma", saves: ["Dexterity", "Charisma"], proficiencies: { armor: ["Light armor"], weapons: ["Simple weapons", "hand crossbows", "longswords", "rapiers", "shortswords"], tools: ["Three musical instruments of your choice"], skills: { count: 3, options: skills } }, equipment_choices: [ { options: ["a rapier", "a longsword", "any simple weapon"] }, { options: ["a diplomat's pack", "an entertainer's pack"] }, { options: ["a lute", "any other musical instrument"] }, { fixed: "Leather armor and a dagger" } ], features: [{ name: "Bardic Inspiration (d6)", desc: "As a bonus action, give one creature a d6 they can add to one ability check, attack roll, or saving throw in the next 10 minutes. Usable Cha mod times per long rest." }, { name: "Spellcasting", desc: "You can cast bard spells. You know 4 spells and 2 cantrips at level 1." }], subclass_level: 3, subclasses: ["College of Lore", "College of Valor"], spellcasting: true },
+                        "Cleric": { description: "A priestly champion who wields divine magic.", hit_die: 8, primary_ability: "Wisdom", saves: ["Wisdom", "Charisma"], proficiencies: { armor: ["Light armor", "medium armor", "shields"], weapons: ["Simple weapons"], skills: { count: 2, options: ["History", "Insight", "Medicine", "Persuasion", "Religion"] } }, equipment_choices: [ { options: ["a mace", "a warhammer (if proficient)"] }, { options: ["scale mail", "leather armor", "chain mail (if proficient)"] }, { options: ["a light crossbow and 20 bolts", "any simple weapon"] }, { options: ["a priest's pack", "an explorer's pack"] }, { fixed: "A shield and a holy symbol" } ], features: [{ name: "Spellcasting", desc: "You can cast cleric spells. You know 3 cantrips and prepare a number of spells equal to your Wis mod + cleric level." }, { name: "Divine Domain", desc: "Choose a domain (e.g., Life, Knowledge) that grants you spells and features." }], subclass_level: 1, subclasses: ["Life Domain", "Knowledge Domain", "Light Domain", "Nature Domain", "Tempest Domain", "Trickery Domain", "War Domain"], spellcasting: true },
+                        "Druid": { description: "A priest of the Old Faith, wielding the powers of nature.", hit_die: 8, primary_ability: "Wisdom", saves: ["Intelligence", "Wisdom"], proficiencies: { armor: ["Light armor", "medium armor", "shields (non-metal)"], weapons: ["Clubs", "daggers", "darts", "javelins", "maces", "quarterstaffs", "scimitars", "sickles", "slings", "spears"], tools: ["Herbalism kit"], skills: { count: 2, options: ["Arcana", "Animal Handling", "Insight", "Medicine", "Nature", "Perception", "Religion", "Survival"] } }, equipment_choices: [ { options: ["a wooden shield", "any simple weapon"] }, { options: ["a scimitar", "any simple melee weapon"] }, { fixed: "Leather armor, an explorer's pack, and a druidic focus" } ], features: [{ name: "Druidic", desc: "You know the secret language of druids." }, { name: "Spellcasting", desc: "You can cast druid spells. You know 2 cantrips and prepare a number of spells equal to your Wis mod + druid level." }], subclass_level: 2, subclasses: ["Circle of the Land", "Circle of the Moon"], spellcasting: true },
+                        "Fighter": { description: "A master of martial combat.", hit_die: 10, primary_ability: "Strength or Dexterity", saves: ["Strength", "Constitution"], proficiencies: { armor: ["All armor", "shields"], weapons: ["Simple weapons", "martial weapons"], skills: { count: 2, options: ["Acrobatics", "Animal Handling", "Athletics", "History", "Insight", "Intimidation", "Perception", "Survival"] } }, equipment_choices: [ { options: ["chain mail", "leather armor, longbow, and 20 arrows"] }, { options: ["a martial weapon and a shield", "two martial weapons"] }, { options: ["a light crossbow and 20 bolts", "two handaxes"] }, { options: ["a dungeoneer's pack", "an explorer's pack"] } ], features: [{ name: "Fighting Style", desc: "Choose a fighting style, such as Archery, Dueling, or Great Weapon Fighting." }, { name: "Second Wind", desc: "Once per short rest, use a bonus action to regain 1d10 + fighter level HP." }], subclass_level: 3, subclasses: ["Champion", "Battle Master", "Eldritch Knight"], spellcasting: false },
+                        "Monk": { description: "A master of martial arts, harnessing the power of the body in pursuit of physical and spiritual perfection.", hit_die: 8, primary_ability: "Dexterity & Wisdom", saves: ["Strength", "Dexterity"], proficiencies: { weapons: ["Simple weapons", "shortswords"], tools: ["One type of artisan's tools or one musical instrument"], skills: { count: 2, options: ["Acrobatics", "Athletics", "History", "Insight", "Religion", "Stealth"] } }, equipment_choices: [ { options: ["a shortsword", "any simple weapon"] }, { options: ["a dungeoneer's pack", "an explorer's pack"] }, { fixed: "10 darts" } ], features: [{ name: "Unarmored Defense", desc: "While wearing no armor and no shield, your AC is 10 + Dex mod + Wis mod." }, { name: "Martial Arts", desc: "You can use Dexterity instead of Strength for attacks and damage with unarmed strikes and monk weapons. You can make one unarmed strike as a bonus action after attacking." }], subclass_level: 3, subclasses: ["Way of the Open Hand", "Way of Shadow", "Way of the Four Elements"], spellcasting: false },
+                        "Paladin": { description: "A holy warrior bound to a sacred oath.", hit_die: 10, primary_ability: "Strength & Charisma", saves: ["Wisdom", "Charisma"], proficiencies: { armor: ["All armor", "shields"], weapons: ["Simple weapons", "martial weapons"], skills: { count: 2, options: ["Athletics", "Insight", "Intimidation", "Medicine", "Persuasion", "Religion"] } }, equipment_choices: [ { options: ["a martial weapon and a shield", "two martial weapons"] }, { options: ["five javelins", "any simple melee weapon"] }, { options: ["a priest's pack", "an explorer's pack"] }, { fixed: "Chain mail and a holy symbol" } ], features: [{ name: "Divine Sense", desc: "As an action, you can detect strong evil or good, or the presence of any celestial, fiend, or undead within 60 feet. Usable 1 + Cha mod times per long rest." }, { name: "Lay on Hands", desc: "You have a pool of healing power equal to your paladin level x 5. As an action, you can touch a creature and draw power from the pool to restore a number of hit points up to the maximum amount remaining in your pool." }], subclass_level: 3, subclasses: ["Oath of Devotion", "Oath of the Ancients", "Oath of Vengeance"], spellcasting: true },
+                        "Ranger": { description: "A warrior who uses martial prowess and nature magic to combat threats on the edges of civilization.", hit_die: 10, primary_ability: "Dexterity & Wisdom", saves: ["Strength", "Dexterity"], proficiencies: { armor: ["Light armor", "medium armor", "shields"], weapons: ["Simple weapons", "martial weapons"], skills: { count: 3, options: ["Animal Handling", "Athletics", "Insight", "Investigation", "Nature", "Perception", "Stealth", "Survival"] } }, equipment_choices: [ { options: ["scale mail", "leather armor"] }, { options: ["two shortswords", "two simple melee weapons"] }, { options: ["a dungeoneer's pack", "an explorer's pack"] }, { fixed: "A longbow and a quiver of 20 arrows" } ], features: [{ name: "Favored Enemy", desc: "You have significant experience studying, tracking, hunting, and even talking to a certain type of enemy. Choose a type of favored enemy: aberrations, beasts, celestials, constructs, dragons, elementals, fey, fiends, giants, monstrosities, oozes, plants, or undead. You have advantage on Wisdom (Survival) checks to track your favored enemies, as well as on Intelligence checks to recall information about them." }, { name: "Natural Explorer", desc: "You are particularly familiar with one type of natural environment and are adept at traveling and surviving in such regions. Choose one type of favored terrain: arctic, coast, desert, forest, grassland, mountain, swamp, or the Underdark. When you make an Intelligence or Wisdom check related to your favored terrain, your proficiency bonus is doubled if you are using a skill that you’re proficient in." }], subclass_level: 3, subclasses: ["Hunter", "Beast Master"], spellcasting: true },
+                        "Rogue": { description: "A scoundrel who uses stealth and trickery to overcome obstacles and enemies.", hit_die: 8, primary_ability: "Dexterity", saves: ["Dexterity", "Intelligence"], proficiencies: { armor: ["Light armor"], weapons: ["Simple weapons", "hand crossbows", "longswords", "rapiers", "shortswords"], tools: ["Thieves' tools"], skills: { count: 4, options: ["Acrobatics", "Athletics", "Deception", "Insight", "Intimidation", "Investigation", "Perception", "Performance", "Persuasion", "Sleight of Hand", "Stealth"] } }, equipment_choices: [ { options: ["a rapier", "a shortsword"] }, { options: ["a shortbow and quiver of 20 arrows", "a shortsword"] }, { options: ["a burglar's pack", "a dungeoneer's pack", "an explorer's pack"] }, { fixed: "Leather armor, two daggers, and thieves' tools" } ], features: [{ name: "Expertise", desc: "Choose two of your skill proficiencies, or one of your skill proficiencies and your proficiency with thieves’ tools. Your proficiency bonus is doubled for any ability check you make that uses either of the chosen proficiencies." }, { name: "Sneak Attack", desc: "Once per turn, you can deal an extra 1d6 damage to one creature you hit with an attack if you have advantage on the attack roll. The attack must use a finesse or a ranged weapon." }, { name: "Thieves' Cant", desc: "You know the secret mix of dialect, jargon, and code that allows you to hide messages in seemingly normal conversation." }], subclass_level: 3, subclasses: ["Thief", "Assassin", "Arcane Trickster"], spellcasting: false },
+                        "Sorcerer": { description: "A spellcaster who draws on inherent magic from a gift or bloodline.", hit_die: 6, primary_ability: "Charisma", saves: ["Constitution", "Charisma"], proficiencies: { weapons: ["Daggers", "darts", "slings", "quarterstaffs", "light crossbows"], skills: { count: 2, options: ["Arcana", "Deception", "Insight", "Intimidation", "Persuasion", "Religion"] } }, equipment_choices: [ { options: ["a light crossbow and 20 bolts", "any simple weapon"] }, { options: ["a component pouch", "an arcane focus"] }, { options: ["a dungeoneer's pack", "an explorer's pack"] }, { fixed: "Two daggers" } ], features: [{ name: "Spellcasting", desc: "You can cast sorcerer spells. You know 4 spells and 4 cantrips at level 1." }, { name: "Sorcerous Origin", desc: "Choose a sorcerous origin, which describes the source of your innate magical power: Draconic Bloodline or Wild Magic." }], subclass_level: 1, subclasses: ["Draconic Bloodline", "Wild Magic"], spellcasting: true },
+                        "Warlock": { description: "A wielder of magic that is derived from a bargain with an extraplanar entity.", hit_die: 8, primary_ability: "Charisma", saves: ["Wisdom", "Charisma"], proficiencies: { armor: ["Light armor"], weapons: ["Simple weapons"], skills: { count: 2, options: ["Arcana", "Deception", "History", "Intimidation", "Investigation", "Nature", "Religion"] } }, equipment_choices: [ { options: ["a light crossbow and 20 bolts", "any simple weapon"] }, { options: ["a component pouch", "an arcane focus"] }, { options: ["a scholar's pack", "a dungeoneer's pack"] }, { fixed: "Leather armor, any simple weapon, and two daggers" } ], features: [{ name: "Otherworldly Patron", desc: "Choose a patron: The Archfey, The Fiend, or The Great Old One." }, { name: "Pact Magic", desc: "Your arcane research and the magic bestowed on you by your patron have given you facility with spells. You know two cantrips and two 1st-level spells. You have one 1st-level spell slot, which you regain on a short or long rest." }], subclass_level: 1, subclasses: ["The Archfey", "The Fiend", "The Great Old One"], spellcasting: true },
+                        "Wizard": { description: "A scholarly magic-user capable of manipulating the structures of reality.", hit_die: 6, primary_ability: "Intelligence", saves: ["Intelligence", "Wisdom"], proficiencies: { weapons: ["Daggers", "darts", "slings", "quarterstaffs", "light crossbows"], skills: { count: 2, options: ["Arcana", "History", "Insight", "Investigation", "Medicine", "Religion"] } }, equipment_choices: [ { options: ["a quarterstaff", "a dagger"] }, { options: ["a component pouch", "an arcane focus"] }, { options: ["a scholar's pack", "an explorer's pack"] }, { fixed: "A spellbook" } ], features: [{ name: "Spellcasting", desc: "You can cast wizard spells. You know 3 cantrips and have a spellbook containing six 1st-level spells." }, { name: "Arcane Recovery", desc: "Once per day when you finish a short rest, you can choose expended spell slots to recover. The spell slots can have a combined level that is equal to or less than half your wizard level (rounded up)." }], subclass_level: 2, subclasses: ["School of Abjuration", "School of Conjuration", "School of Divination", "School of Enchantment", "School of Evocation", "School of Illusion", "School of Necromancy", "School of Transmutation"], spellcasting: true }
                     },
                     backgrounds: {
-                        "Acolyte": {
-                            skill_proficiencies: ["Insight", "Religion"],
-                            tool_proficiencies: [],
-                            languages_choices: "Two of your choice",
-                            equipment: "A holy symbol (a gift to you when you entered the priesthood), a prayer book or prayer wheel, 5 sticks of incense, vestments, a set of common clothes, and a pouch containing 15 gp",
-                            feature: {name: "Shelter of the Faithful", desc: "As an acolyte, you command the respect of those who share your faith, and you can perform the religious ceremonies of your deity. You and your adventuring companions can expect to receive free healing and care at a temple, shrine, or other established presence of your faith, though you must provide any material components needed for spells. Those who share your religion will support you (but only you) at a modest lifestyle. You might also have ties to a specific temple dedicated to your chosen deity or pantheon, and you have a residence there. This could be the temple where you used to serve, if you remain on good terms with it, or a temple where you have found a new home. While near your temple, you can call upon the priests for assistance, provided the assistance you ask for is not hazardous and you remain in good standing with your temple."},
-                            personalityTraits: ["I idolize a particular hero of my faith, and constantly refer to that person’s deeds and example.", "I can find common ground between the fiercest enemies, empathizing with them and always working toward peace.", "I see omens in every event and action. The gods try to speak to us, we just need to listen", "Nothing can shake my optimistic attitude.", "I quote (or misquote) sacred texts and proverbs in almost every situation.", "I am tolerant (or intolerant) of other faiths and respect (or condemn) the worship of other gods.", "I've enjoyed fine food, drink, and high society among my temple’s elite. Rough living grates on me.", "I've spent so long in the temple that I have little practical experience dealing with people in the outside world."],
-                            ideals: ["Tradition. The ancient traditions of worship and sacrifice must be preserved and upheld. (Lawful)", "Charity. I always try to help those in need, no matter what the personal cost. (Good)", "Change. We must help bring about the changes the gods are constantly working in the world. (Chaotic)", "Power. I hope to one day rise to the top of my faith’s religious hierarchy. (Lawful)", "Faith. I trust that my deity will guide my actions, I have faith that if I work hard, things will go well. (Lawful)", "Aspiration. I seek to prove myself worthy of my god’s favor by matching my actions against his or her teachings. (Any)"],
-                            bonds: ["I would die to recover an ancient relic of my faith that was lost long ago.", "I will someday get revenge on the corrupt temple hierarchy who branded me a heretic.", "I owe my life to the priest who took me in when my parents died.", "Everything I do is for the common people.", "I will do anything to protect the temple where I served.", "I seek to preserve a sacred text that my enemies consider heretical and seek to destroy."],
-                            flaws: ["I judge others harshly, and myself even more severely.", "I put too much trust in those who wield power within my temple’s hierarchy.", "My piety sometimes leads me to blindly trust those that profess faith in my god.", "I am inflexible in my thinking.", "I am suspicious of strangers and expect the worst of them.", "Once I pick a goal, I become obsessed with it to the detriment of everything else in my life."]
-                        },
-                        "Criminal": {
-                            skill_proficiencies: ["Deception", "Stealth"],
-                            tool_proficiencies: ["One type of gaming set", "Thieves' tools"],
-                            languages_choices: "None",
-                            equipment: "A crowbar, a set of dark common clothes including a hood, and a pouch containing 15 gp",
-                            feature: {name: "Criminal Contact", desc: "You have a reliable and trustworthy contact who acts as your liaison to a network of other criminals. You know how to get messages to and from your contact, even over great distances; specifically, you know the local messengers, corrupt caravan masters, and seedy sailors who can deliver messages for you."},
-                            personalityTraits: ["I always have a plan for what to do when things go wrong.", "I am always calm, no matter what the situation. I never raise my voice or let my emotions control me.", "The best way to get me to do something is to tell me I can't do it.", "I blow up at the first insult.", "I am incredibly slow to trust. Those who seem the fairest often have the most to hide.", "I don't pay attention to the risks in a situation. Never tell me the odds.", "The first thing I do in a new place is note the locations of everything valuable—or where such things could be hidden.", "I would rather make a new friend than a new enemy."],
-                            ideals: ["Honor. I don’t steal from others in the trade. (Lawful)", "Freedom. Chains are meant to be broken, as are those who would forge them. (Chaotic)", "Charity. I steal from the wealthy so that I can help people in need. (Good)", "Greed. I will do whatever it takes to become wealthy. (Evil)", "People. I’m loyal to my friends, not to any ideals, and everyone else can take a trip down the Styx for all I care. (Neutral)", "Redemption. There’s a spark of good in everyone. (Good)"],
-                            bonds: ["I’m trying to pay off an old debt I owe to a generous benefactor.", "My ill-gotten gains go to support my family.", "Something important was taken from me, and I aim to steal it back.", "I will become the greatest thief that ever lived.", "I’m guilty of a terrible crime. I hope I can redeem myself for it.", "Someone I loved died because of I mistake I made. That will never happen again."],
-                            flaws: ["When I see something valuable, I can’t think about anything but how to steal it.", "When faced with a choice between money and my friends, I usually choose the money.", "If there’s a plan, I’ll forget it. If I don’t forget it, I’ll ignore it.", "I have a “tell” that reveals when I'm lying.", "I turn tail and run when things look bad.", "An innocent person is in prison for a crime that I committed. I’m okay with that."]
-                        },
-                        // Expand with more backgrounds: Charlatan, Entertainer, Folk Hero, Guild Artisan, Hermit, Noble, Outlander, Sage, Sailor, Soldier, Urchin.
-                        "Entertainer": {
-                            skill_proficiencies: ["Acrobatics", "Performance"],
-                            tool_proficiencies: ["Disguise kit", "One type of musical instrument"],
-                            languages_choices: "None",
-                            equipment: "A musical instrument (one of your choice), the favor of an admirer (love letter, lock of hair, or trinket), a costume, and a pouch containing 15 gp",
-                            feature: {name: "By Popular Demand", desc: "You can always find a place to perform, usually in an inn or tavern but possibly with a circus, at a theater, or even in a noble's court. At such a place, you receive free lodging and food of a modest or comfortable standard (depending on the quality of the establishment), as long as you perform each night. In addition, your performance makes you something of a local figure. When strangers recognize you in a town where you have performed, they typically take a liking to you."},
-                            personalityTraits: ["I know a story relevant to almost every situation.", "Whenever I come to a new place, I collect local rumors and spread gossip.", "I’m a hopeless romantic, always searching for that “special someone.”", "Nobody stays angry at me or around me for long, since I can defuse any amount of tension.", "I love a good insult, even one directed at me.", "I get bitter if I’m not the center of attention.", "I’ll settle for nothing less than perfection.", "I change my mood or my mind as quickly as I change key in a song."],
-                            ideals: ["Beauty. When I perform, I make the world better than it was. (Good)", "Tradition. The stories, legends, and songs of the past must never be forgotten, for they teach us who we are. (Lawful)", "Creativity. The world is in need of new ideas and bold action. (Chaotic)", "Greed. I’m only in it for the money and fame. (Evil)", "People. I like seeing the smiles on people’s faces when I perform. That’s all that matters. (Neutral)", "Honesty. Art should reflect the soul; it should come from within and reveal who we really are. (Any)"],
-                            bonds: ["My instrument is my most treasured possession, and it reminds me of someone I love.", "Someone stole my precious instrument, and someday I’ll get it back.", "I want to be famous, whatever it takes.", "I idolize a hero of the old tales and measure my deeds against that person’s.", "I will do anything to prove myself superior to my hated rival.", "I would die to recover an ancient artifact of my faith that was lost long ago."],
-                            flaws: ["I’ll do anything to win fame and renown.", "I’m a sucker for a pretty face.", "A scandal prevents me from ever going home again. That kind of trouble seems to follow me around.", "I once satirized a noble who still wants my head. It was a mistake that I will likely repeat.", "I have trouble keeping my true feelings hidden. My sharp tongue lands me in trouble.", "Despite my best efforts, I am unreliable to my friends."]
-                        },
-                        // Continue adding full details for other backgrounds.
+                        "Acolyte": { skill_proficiencies: ["Insight", "Religion"], languages_choices: 2, equipment: "A holy symbol, a prayer book, 5 sticks of incense, vestments, common clothes, and 15 gp", feature: { name: "Shelter of the Faithful", desc: "You and your companions can receive free healing and care at a temple of your faith." }, personalityTraits: ["I idolize a particular hero of my faith.", "I see omens in every event.", "I quote sacred texts in almost every situation.", "I've spent so long in the temple that I have little practical experience with the outside world."], ideals: ["Tradition (Lawful)", "Charity (Good)", "Change (Chaotic)", "Power (Lawful)", "Faith (Lawful)", "Aspiration (Any)"], bonds: ["I would die to recover an ancient relic.", "I will get revenge on a corrupt temple hierarchy.", "I owe my life to the priest who took me in.", "I will do anything to protect the temple where I served."], flaws: ["I judge others harshly.", "I put too much trust in those who wield power within my temple.", "I am suspicious of strangers.", "I am inflexible in my thinking."] },
+                        "Criminal": { skill_proficiencies: ["Deception", "Stealth"], tool_proficiencies: ["One type of gaming set", "Thieves' tools"], equipment: "A crowbar, dark common clothes with a hood, and 15 gp", feature: { name: "Criminal Contact", desc: "You have a reliable contact in the criminal underworld." }, personalityTraits: ["I always have a plan.", "I am always calm, no matter the situation.", "The first thing I do in a new place is note the locations of everything valuable.", "I would rather make a new friend than a new enemy."], ideals: ["Honor (Lawful)", "Freedom (Chaotic)", "Charity (Good)", "Greed (Evil)", "People (Neutral)", "Redemption (Good)"], bonds: ["I'm trying to pay off an old debt.", "My ill-gotten gains go to support my family.", "Something important was taken from me, and I aim to steal it back.", "Someone I loved died because of a mistake I made. That will never happen again."], flaws: ["When I see something valuable, I can't think about anything but stealing it.", "I have a 'tell' that reveals when I'm lying.", "I turn tail and run when things look bad.", "An innocent person is in prison for a crime I committed."] },
+                        "Folk Hero": { skill_proficiencies: ["Animal Handling", "Survival"], tool_proficiencies: ["One type of artisan's tools", "Land vehicles"], equipment: "A set of artisan's tools, a shovel, an iron pot, common clothes, and 10 gp", feature: { name: "Rustic Hospitality", desc: "Common folk will welcome you and hide you from the law. They will not risk their lives for you." }, personalityTraits: ["I judge people by their actions, not their words.", "If someone is in trouble, I'm always ready to lend help.", "I have a strong sense of fair play and always try to find the most equitable solution to arguments.", "I'm confident in my own abilities and do what I can to instill confidence in others."], ideals: ["Respect (Good)", "Fairness (Lawful)", "Freedom (Chaotic)", "Might (Neutral)", "Sincerity (Neutral)", "Destiny (Any)"], bonds: ["I have a family, but I have no idea where they are. One day, I hope to see them again.", "I worked the land, I love the land, and I will protect the land.", "A proud noble once gave me a horrible beating, and I will take my revenge on any bully I encounter.", "My tools are symbols of my past life, and I carry them so that I will never forget my roots."], flaws: ["The tyrant who rules my land will stop at nothing to see me killed.", "I'm convinced of the significance of my destiny, and blind to my shortcomings and the risk of failure.", "The people who knew me when I was young know my shameful secret, so I can never go home again.", "I have a weakness for the vices of the city, especially hard drink."] },
+                        "Noble": { skill_proficiencies: ["History", "Persuasion"], tool_proficiencies: ["One type of gaming set"], languages_choices: 1, equipment: "A set of fine clothes, a signet ring, a scroll of pedigree, and 25 gp", feature: { name: "Position of Privilege", desc: "You are welcome in high society, and people assume you have the right to be wherever you are." }, personalityTraits: ["My eloquent flattery makes everyone I talk to feel like the most wonderful and important person in the world.", "The common folk love me for my kindness and generosity.", "I take great pains to always look my best and follow the latest fashions.", "I don't like to get my hands dirty, and I won't be caught dead in unsuitable accommodations."], ideals: ["Respect (Good)", "Responsibility (Lawful)", "Independence (Chaotic)", "Power (Evil)", "Family (Any)", "Noble Obligation (Good)"], bonds: ["I will face any challenge to win the approval of my family.", "My house's alliance with another noble family must be sustained at all costs.", "The common folk must see me as a hero of the people.", "My loyalty to my sovereign is unwavering."], flaws: ["I secretly believe that everyone is beneath me.", "I hide a truly scandalous secret that could ruin my family forever.", "I too often hear veiled insults and threats in every word addressed to me, and I'm quick to anger.", "I have an insatiable desire for carnal pleasures."] },
+                        "Sage": { skill_proficiencies: ["Arcana", "History"], languages_choices: 2, equipment: "A bottle of black ink, a quill, a small knife, a letter from a dead colleague, common clothes, and 10 gp", feature: { name: "Researcher", desc: "When you attempt to learn or recall a piece of lore, if you do not know that information, you often know where and from whom you can obtain it." }, personalityTraits: ["I use polysyllabic words that convey the impression of great erudition.", "I've read every book in the world's greatest libraries... or I like to boast that I have.", "I'm willing to listen to every side of an argument before I make my own judgment.", "I am horribly, horribly awkward in social situations."], ideals: ["Knowledge (Neutral)", "Beauty (Good)", "Logic (Lawful)", "No Limits (Chaotic)", "Power (Evil)", "Self-Improvement (Any)"], bonds: ["It is my duty to protect my students.", "I have an ancient text that holds terrible secrets that must not fall into the wrong hands.", "I work to preserve a library, university, scriptorium, or monastery.", "My life's work is a series of tomes related to a specific field of lore."], flaws: ["I am easily distracted by the promise of information.", "Most people scream and run when they see a demon. I stop and take notes on its anatomy.", "I speak without really thinking through my words, invariably insulting others.", "I can't keep a secret to save my life, or anyone else's."] },
+                        "Soldier": { skill_proficiencies: ["Athletics", "Intimidation"], tool_proficiencies: ["One type of gaming set", "Land vehicles"], equipment: "An insignia of rank, a trophy taken from a fallen enemy, a set of bone dice or deck of cards, common clothes, and 10 gp", feature: { name: "Military Rank", desc: "Soldiers loyal to your former military organization still recognize your authority and influence." }, personalityTraits: ["I'm always polite and respectful.", "I'm haunted by memories of war. I can't get the images of violence out of my mind.", "I've lost too many friends, and I'm slow to make new ones.", "I'm full of inspiring and cautionary tales from my military experience relevant to almost every combat situation."], ideals: ["Greater Good (Good)", "Responsibility (Lawful)", "Independence (Chaotic)", "Might (Evil)", "Live and Let Live (Neutral)", "Nation (Any)"], bonds: ["I would still lay down my life for the people I served with.", "Someone saved my life on the battlefield. To this day, I will never leave a friend behind.", "My honor is my life.", "I'll never forget the crushing defeat my company suffered or the enemies who dealt it."], flaws: ["The monstrous enemy we faced in battle still leaves me quaking with fear.", "I have little respect for anyone who is not a proven warrior.", "I made a terrible mistake in battle that cost many lives, and I would do anything to keep that mistake secret.", "My hatred of my enemies is blind and unreasoning."] }
                     },
                     spells: {
-                        "Bard": {
-                            cantrips: ["Blade Ward", "Dancing Lights", "Friends", "Light", "Mage Hand", "Mending", "Message", "Minor Illusion", "Prestidigitation", "True Strike", "Vicious Mockery"],
-                            level1: ["Animal Friendship", "Bane", "Charm Person", "Color Spray", "Comprehend Languages", "Cure Wounds", "Detect Magic", "Disguise Self", "Dissonant Whispers", "Earth Tremor", "Faerie Fire", "Feather Fall", "Healing Word", "Heroism", "Identify", "Illusory Script", "Longstrider", "Silent Image", "Sleep", "Speak with Animals", "Tasha's Hideous Laughter", "Thunderwave", "Unseen Servant"]
-                        },
-                        "Cleric": {
-                            cantrips: ["Guidance", "Light", "Mending", "Resistance", "Sacred Flame", "Spare the Dying", "Thaumaturgy"],
-                            level1: ["Bane", "Bless", "Command", "Create or Destroy Water", "Cure Wounds", "Detect Evil and Good", "Detect Magic", "Detect Poison and Disease", "Guiding Bolt", "Healing Word", "Inflict Wounds", "Protection from Evil and Good", "Purify Food and Drink", "Sanctuary", "Shield of Faith"]
-                        },
-                        "Druid": {
-                            cantrips: ["Druidcraft", "Guidance", "Mending", "Poison Spray", "Produce Flame", "Resistance", "Shillelagh"],
-                            level1: ["Animal Friendship", "Charm Person", "Create or Destroy Water", "Cure Wounds", "Detect Magic", "Detect Poison and Disease", "Entangle", "Faerie Fire", "Fog Cloud", "Goodberry", "Healing Word", "Jump", "Longstrider", "Purify Food and Drink", "Speak with Animals", "Thunderwave"]
-                        },
-                        "Paladin": {
-                            cantrips: [],
-                            level1: ["Bless", "Command", "Compelled Duel", "Cure Wounds", "Detect Evil and Good", "Detect Magic", "Detect Poison and Disease", "Divine Favor", "Heroism", "Protection from Evil and Good", "Purify Food and Drink", "Searing Smite", "Shield of Faith", "Thunderous Smite", "Wrathful Smite"]
-                        },
-                        "Ranger": {
-                            cantrips: [],
-                            level1: ["Alarm", "Animal Friendship", "Cure Wounds", "Detect Magic", "Detect Poison and Disease", "Ensnaring Strike", "Fog Cloud", "Goodberry", "Hail of Thorns", "Hunter's Mark", "Jump", "Longstrider", "Speak with Animals"]
-                        },
-                        "Sorcerer": {
-                            cantrips: ["Acid Splash", "Chill Touch", "Dancing Lights", "Fire Bolt", "Light", "Mage Hand", "Mending", "Message", "Minor Illusion", "Poison Spray", "Prestidigitation", "Ray of Frost", "Shocking Grasp", "True Strike"],
-                            level1: ["Burning Hands", "Charm Person", "Color Spray", "Comprehend Languages", "Detect Magic", "Disguise Self", "Expeditious Retreat", "False Life", "Feather Fall", "Fog Cloud", "Jump", "Mage Armor", "Magic Missile", "Ray of Sickness", "Shield", "Silent Image", "Sleep", "Thunderwave"]
-                        },
-                        "Warlock": {
-                            cantrips: ["Chill Touch", "Eldritch Blast", "Guidance", "Light", "Mage Hand", "Mending", "Message", "Minor Illusion", "Poison Spray", "Prestidigitation", "Resistance", "Sacred Flame", "Spare the Dying", "Thaumaturgy", "True Strike", "Vicious Mockery"],
-                            level1: ["Armor of Agathys", "Arms of Hadar", "Burning Hands", "Charm Person", "Command", "Comprehend Languages", "Cure Wounds", "Dissonant Whispers", "Expeditious Retreat", "Faerie Fire", "False Life", "Find Familiar", "Fog Cloud", "Grease", "Healing Word", "Hellish Rebuke", "Heroism", "Hex", "Illusory Script", "Longstrider", "Mage Armor", "Protection from Evil and Good", "Purify Food and Drink", "Ray of Sickness", "Sanctuary", "Silent Image", "Sleep", "Speak with Animals", "Tasha's Hideous Laughter", "Tenser's Floating Disk", "Thunderwave", "Unseen Servant", "Witch Bolt"]
-                        },
-                        "Wizard": {
-                            cantrips: ["Acid Splash", "Chill Touch", "Dancing Lights", "Fire Bolt", "Light", "Mage Hand", "Mending", "Message", "Minor Illusion", "Poison Spray", "Prestidigitation", "Ray of Frost", "Shocking Grasp", "True Strike"],
-                            level1: ["Alarm", "Burning Hands", "Charm Person", "Color Spray", "Comprehend Languages", "Detect Magic", "Disguise Self", "Expeditious Retreat", "False Life", "Feather Fall", "Find Familiar", "Floating Disk", "Fog Cloud", "Grease", "Identify", "Illusory Script", "Jump", "Longstrider", "Mage Armor", "Magic Missile", "Protection from Evil and Good", "Ray of Sickness", "Shield", "Silent Image", "Sleep", "Thunderwave", "Unseen Servant"]
-                        }
+                        "Bard": { cantrips: ["Blade Ward", "Dancing Lights", "Friends", "Light", "Mage Hand", "Mending", "Message", "Minor Illusion", "Prestidigitation", "True Strike", "Vicious Mockery"], level1: ["Animal Friendship", "Bane", "Charm Person", "Comprehend Languages", "Cure Wounds", "Detect Magic", "Disguise Self", "Faerie Fire", "Feather Fall", "Healing Word", "Heroism", "Identify", "Illusory Script", "Longstrider", "Silent Image", "Sleep", "Speak with Animals", "Tasha's Hideous Laughter", "Thunderwave", "Unseen Servant"] },
+                        "Cleric": { cantrips: ["Guidance", "Light", "Mending", "Resistance", "Sacred Flame", "Spare the Dying", "Thaumaturgy"], level1: ["Bane", "Bless", "Command", "Create or Destroy Water", "Cure Wounds", "Detect Evil and Good", "Detect Magic", "Guiding Bolt", "Healing Word", "Inflict Wounds", "Protection from Evil and Good", "Sanctuary", "Shield of Faith"] },
+                        "Druid": { cantrips: ["Druidcraft", "Guidance", "Mending", "Poison Spray", "Produce Flame", "Resistance", "Shillelagh"], level1: ["Animal Friendship", "Charm Person", "Create or Destroy Water", "Cure Wounds", "Detect Magic", "Entangle", "Faerie Fire", "Fog Cloud", "Goodberry", "Healing Word", "Jump", "Longstrider", "Speak with Animals", "Thunderwave"] },
+                        "Paladin": { level1: ["Bless", "Command", "Cure Wounds", "Detect Evil and Good", "Detect Magic", "Divine Favor", "Heroism", "Protection from Evil and Good", "Shield of Faith", "Wrathful Smite"] },
+                        "Ranger": { level1: ["Alarm", "Animal Friendship", "Cure Wounds", "Detect Magic", "Ensnaring Strike", "Fog Cloud", "Goodberry", "Hail of Thorns", "Hunter's Mark", "Jump", "Longstrider", "Speak with Animals"] },
+                        "Sorcerer": { cantrips: ["Acid Splash", "Chill Touch", "Dancing Lights", "Fire Bolt", "Light", "Mage Hand", "Mending", "Message", "Minor Illusion", "Poison Spray", "Prestidigitation", "Ray of Frost", "Shocking Grasp", "True Strike"], level1: ["Burning Hands", "Charm Person", "Detect Magic", "Disguise Self", "Feather Fall", "Mage Armor", "Magic Missile", "Shield", "Silent Image", "Sleep", "Thunderwave"] },
+                        "Warlock": { cantrips: ["Chill Touch", "Eldritch Blast", "Mage Hand", "Minor Illusion", "Poison Spray", "Prestidigitation", "True Strike"], level1: ["Charm Person", "Comprehend Languages", "Expeditious Retreat", "Hellish Rebuke", "Hex", "Illusory Script", "Protection from Evil and Good", "Unseen Servant"] },
+                        "Wizard": { cantrips: ["Acid Splash", "Chill Touch", "Dancing Lights", "Fire Bolt", "Light", "Mage Hand", "Mending", "Message", "Minor Illusion", "Poison Spray", "Prestidigitation", "Ray of Frost", "Shocking Grasp", "True Strike"], level1: ["Alarm", "Burning Hands", "Charm Person", "Comprehend Languages", "Detect Magic", "Disguise Self", "Feather Fall", "Find Familiar", "Identify", "Mage Armor", "Magic Missile", "Shield", "Silent Image", "Sleep", "Thunderwave", "Unseen Servant"] }
                     }
                 });
             };
@@ -2019,15 +1797,27 @@
                     goToStep(3);
                 });
                 document.getElementById('creator-prev-3').addEventListener('click', () => goToStep(2));
-                document.getElementById('creator-next-3').addEventListener('click', () => goToStep(4));
+                document.getElementById('creator-next-3').addEventListener('click', () => {
+                     if (document.getElementById('points-remaining').innerText !== '0') {
+                        showModal("You must spend all 27 ability score points to continue.");
+                        return;
+                    }
+                    goToStep(4)
+                });
                 document.getElementById('creator-prev-4').addEventListener('click', () => goToStep(3));
                 document.getElementById('creator-next-4').addEventListener('click', () => { 
                     creatorData.background = document.getElementById('background-select').value;
+                    populatePersonalityTraits();
+                    populateLanguages();
                     goToStep(5);
                 });
                 document.getElementById('creator-prev-5').addEventListener('click', () => goToStep(4));
                 document.getElementById('creator-next-5').addEventListener('click', () => {
                     creatorData.name = document.getElementById('creator-char-name').value;
+                    if (!creatorData.name) {
+                        showModal("Please enter a character name.");
+                        return;
+                    }
                     creatorData.alignment = document.getElementById('alignment-select').value;
                     creatorData.age = document.getElementById('age-input').value;
                     creatorData.height = document.getElementById('height-input').value;
@@ -2039,16 +1829,26 @@
                     creatorData.ideal = document.getElementById('ideal-select').value;
                     creatorData.bond = document.getElementById('bond-select').value;
                     creatorData.flaw = document.getElementById('flaw-select').value;
-                    creatorData.languages = Array.from(document.querySelectorAll('.language-checkbox:checked')).map(cb => cb.value);
+                    
+                    const baseLanguages = dndData.races[creatorData.race].languages.split(', ').map(l => l.replace('and ', '').trim());
+                    const chosenLanguages = Array.from(document.querySelectorAll('.language-checkbox:checked')).map(cb => cb.value);
+                    creatorData.languages = [...new Set([...baseLanguages, ...chosenLanguages])]; // Combine and remove duplicates
+
                     creatorData.backstory = document.getElementById('backstory-input').value;
 
                     populateProficiencies();
                     populateFeats();
-                    populateFeatsAndAbilities();
                     goToStep(6);
                 });
                 document.getElementById('creator-prev-6').addEventListener('click', () => goToStep(5));
                 document.getElementById('creator-next-6').addEventListener('click', () => {
+                    const classData = dndData.classes[creatorData.class];
+                    const numChoices = classData.proficiencies.skills.count;
+                    const checked = document.querySelectorAll('.proficiency-checkbox:checked').length;
+                    if (checked < numChoices) {
+                        showModal(`Please select ${numChoices} skill proficiencies.`);
+                        return;
+                    }
                     creatorData.proficiencies = Array.from(document.querySelectorAll('.proficiency-checkbox:checked')).map(cb => cb.value);
                     creatorData.feat = document.getElementById('feat-select')?.value || null;
                     populateEquipment();
@@ -2057,9 +1857,23 @@
                 document.getElementById('creator-prev-7').addEventListener('click', () => goToStep(6));
                 document.getElementById('creator-next-7').addEventListener('click', () => {
                     creatorData.equipment = [];
-                    document.querySelectorAll('.equipment-choice').forEach(group => {
+                    let allChoicesMade = true;
+                    document.querySelectorAll('.equipment-choice-group').forEach(group => {
+                        if (group.querySelector('input[type=radio]') && !group.querySelector('input:checked')) {
+                            allChoicesMade = false;
+                        }
+                    });
+
+                    if (!allChoicesMade) {
+                        showModal("Please make a selection for each equipment choice.");
+                        return;
+                    }
+
+                    document.querySelectorAll('.equipment-choice-group').forEach(group => {
                         const selected = group.querySelector('input:checked')?.value;
                         if (selected) creatorData.equipment.push(selected);
+                        const fixed = group.dataset.fixed;
+                        if (fixed) creatorData.equipment.push(fixed);
                     });
 
                     const isSpellcaster = dndData.classes[creatorData.class].spellcasting;
@@ -2099,7 +1913,7 @@
             const reviewCharacter = () => {
                 const reviewOutput = document.getElementById('review-output');
                 
-                // Collect Selections
+                // Collect Selections from spell step if applicable
                 if (dndData.classes[creatorData.class].spellcasting) {
                     creatorData.spells = {
                         cantrips: Array.from(document.querySelectorAll('.cantrip-checkbox:checked')).map(cb => cb.value),
@@ -2107,7 +1921,6 @@
                     };
                 }
 
-                // Build Review Text
                 let abilities = 'Not set';
                 if(creatorData.abilities) {
                     abilities = Object.keys(creatorData.abilities).map(key => `${key.substring(0,3).toUpperCase()}: ${creatorData.abilities[key].score} (${creatorData.abilities[key].modifier >= 0 ? '+' : ''}${creatorData.abilities[key].modifier})`).join(' | ');
@@ -2117,29 +1930,19 @@
                 const classData = dndData.classes[creatorData.class];
                 const backgroundData = dndData.backgrounds[creatorData.background];
 
-                let allTraits = [ ...raceData.traits, ...classData.features, ...backgroundData.features ];
-
-                if (creatorData.subrace) {
-                    // Add subrace traits (expand in dndData if needed)
-                }
-                if (creatorData.subclass) {
-                    // Add subclass features
-                }
-                if (creatorData.feat) {
-                    allTraits.push({name: creatorData.feat, desc: "Feat description (expand in data)."});
-                }
+                let allTraits = [ ...raceData.traits, ...classData.features, backgroundData.feature ];
 
                 let reviewHTML = `
                     <h3 class="font-title text-2xl">${creatorData.name}</h3>
-                    <p>${creatorData.alignment} ${creatorData.subrace ? creatorData.subrace + ' ' : ''}${creatorData.race} ${creatorData.subclass ? creatorData.subclass + ' ' : ''}${creatorData.class} 1</p>
+                    <p>${creatorData.alignment} ${creatorData.subrace || ''} ${creatorData.race} ${creatorData.class} 1</p>
                     <p><strong>Background:</strong> ${creatorData.background}</p>
                     <p><strong>Speed:</strong> ${raceData.speed} ft. | <strong>Size:</strong> ${raceData.size}</p>
-                    <p><strong>Age:</strong> ${creatorData.age} | <strong>Height:</strong> ${creatorData.height} | <strong>Weight:</strong> ${creatorData.weight}</p>
-                    <p><strong>Eyes:</strong> ${creatorData.eyes} | <strong>Skin:</strong> ${creatorData.skin} | <strong>Hair:</strong> ${creatorData.hair}</p>
+                    <p><strong>Age:</strong> ${creatorData.age || 'N/A'} | <strong>Height:</strong> ${creatorData.height || 'N/A'} | <strong>Weight:</strong> ${creatorData.weight || 'N/A'}</p>
+                    <p><strong>Eyes:</strong> ${creatorData.eyes || 'N/A'} | <strong>Skin:</strong> ${creatorData.skin || 'N/A'} | <strong>Hair:</strong> ${creatorData.hair || 'N/A'}</p>
                     <hr class="my-2 border-gray-600">
                     <p><strong>Ability Scores:</strong> ${abilities}</p>
                     <p><strong>Saving Throws:</strong> ${classData.saves.join(', ')}</p>
-                    <p><strong>Skills:</strong> ${[...backgroundData.skillProficiencies, ...creatorData.proficiencies].join(', ')}</p>
+                    <p><strong>Skills:</strong> ${[...backgroundData.skill_proficiencies, ...creatorData.proficiencies].join(', ')}</p>
                     <p><strong>Languages:</strong> ${creatorData.languages.join(', ')}</p>
                     <hr class="my-2 border-gray-600">
                     <p><strong>Personality Trait:</strong> ${creatorData.personalityTrait}</p>
@@ -2153,12 +1956,12 @@
                     <p>${creatorData.equipment.join(', ')}</p>
                 `;
 
-                if(creatorData.spells && creatorData.spells.cantrips.length > 0) {
+                if(creatorData.spells && (creatorData.spells.cantrips.length > 0 || creatorData.spells.level1.length > 0)) {
                     reviewHTML += `
                         <hr class="my-2 border-gray-600">
                         <h4 class="font-title text-xl mt-2">Spells</h4>
-                        <p><strong>Cantrips:</strong> ${creatorData.spells.cantrips.join(', ')}</p>
-                        <p><strong>1st-Level Spells:</strong> ${creatorData.spells.level1.join(', ')}</p>
+                        ${creatorData.spells.cantrips.length > 0 ? `<p><strong>Cantrips:</strong> ${creatorData.spells.cantrips.join(', ')}</p>` : ''}
+                        ${creatorData.spells.level1.length > 0 ? `<p><strong>1st-Level Spells:</strong> ${creatorData.spells.level1.join(', ')}</p>`: ''}
                     `;
                 }
 
@@ -2166,7 +1969,7 @@
                      reviewHTML += `
                         <hr class="my-2 border-gray-600">
                         <h4 class="font-title text-xl mt-2">Backstory</h4>
-                        <p>${creatorData.backstory}</p>
+                        <p>${creatorData.backstory.replace(/\n/g, '<br>')}</p>
                     `;
                 }
 
@@ -2175,32 +1978,20 @@
             
             const resetCreator = () => {
                 creatorData = {};
-                document.getElementById('creator-char-name').value = '';
-                document.getElementById('backstory-input').value = '';
-                document.getElementById('age-input').value = '';
-                document.getElementById('height-input').value = '';
-                document.getElementById('weight-input').value = '';
-                document.getElementById('eyes-input').value = '';
-                document.getElementById('skin-input').value = '';
-                document.getElementById('hair-input').value = '';
-                // Reset selections
-                document.getElementById('race-select').selectedIndex = 0;
+                ['creator-char-name', 'backstory-input', 'age-input', 'height-input', 'weight-input', 'eyes-input', 'skin-input', 'hair-input'].forEach(id => document.getElementById(id).value = '');
+                ['race-select', 'class-select', 'background-select', 'alignment-select'].forEach(id => document.getElementById(id).selectedIndex = 0);
+                
                 document.getElementById('subrace-select').innerHTML = '';
                 document.getElementById('subrace-select').classList.add('hidden');
-                document.getElementById('class-select').selectedIndex = 0;
                 document.getElementById('subclass-select').innerHTML = '';
                 document.getElementById('subclass-select').classList.add('hidden');
-                document.getElementById('background-select').selectedIndex = 0;
-                document.getElementById('alignment-select').selectedIndex = 0;
                 
-                populatePersonalityTraits();
-                populateLanguages();
-
                 initAbilityScores();
+                initCreator(); // Re-run to reset descriptions
                 goToStep(1);
             };
 
-            const initCreator = async () => {
+            const initCreator = () => {
                 loadDnDData();
 
                 const raceSelect = document.getElementById('race-select');
@@ -2210,15 +2001,11 @@
                 const backgroundSelect = document.getElementById('background-select');
                 const alignmentSelect = document.getElementById('alignment-select');
                 
-                raceSelect.innerHTML = '';
-                classSelect.innerHTML = '';
-                backgroundSelect.innerHTML = '';
-                alignmentSelect.innerHTML = '';
-
-                Object.keys(dndData.races).forEach(r => raceSelect.add(new Option(r,r)));
-                Object.keys(dndData.classes).forEach(c => classSelect.add(new Option(c,c)));
-                Object.keys(dndData.backgrounds).forEach(b => backgroundSelect.add(new Option(b,b)));
-                dndData.alignments.forEach(a => alignmentSelect.add(new Option(a,a)));
+                // Populate dropdowns only if they are empty
+                if(raceSelect.options.length === 0) Object.keys(dndData.races).forEach(r => raceSelect.add(new Option(r,r)));
+                if(classSelect.options.length === 0) Object.keys(dndData.classes).forEach(c => classSelect.add(new Option(c,c)));
+                if(backgroundSelect.options.length === 0) Object.keys(dndData.backgrounds).forEach(b => backgroundSelect.add(new Option(b,b)));
+                if(alignmentSelect.options.length === 0) dndData.alignments.forEach(a => alignmentSelect.add(new Option(a,a)));
 
                 const updateRaceDesc = () => {
                     const race = raceSelect.value;
@@ -2226,7 +2013,6 @@
                     subraceSelect.innerHTML = '';
                     dndData.races[race].subraces.forEach(sr => subraceSelect.add(new Option(sr.name, sr.name)));
                     subraceSelect.classList.toggle('hidden', dndData.races[race].subraces.length === 0);
-                    populateLanguages();
                 };
                 const updateClassDesc = () => {
                     const cls = classSelect.value;
@@ -2241,9 +2027,7 @@
                 };
                 const updateBackgroundDesc = () => {
                     const bg = backgroundSelect.value;
-                    document.getElementById('background-description').innerText = "Background description (expand data).";
-                    populatePersonalityTraits();
-                    populateLanguages();
+                    document.getElementById('background-description').innerText = dndData.backgrounds[bg].feature.desc;
                 };
 
                 raceSelect.onchange = updateRaceDesc;
@@ -2287,6 +2071,7 @@
                         label.className = 'font-bold';
                         label.innerText = ability;
                         
+                        const scoreDisplay = document.createElement('div');
                         const scoreEl = document.createElement('span');
                         scoreEl.className = 'text-2xl';
                         scoreEl.innerText = score;
@@ -2294,11 +2079,14 @@
                         const modifierEl = document.createElement('span');
                         modifierEl.className = 'text-sm text-gray-400 ml-2';
                         modifierEl.innerText = `(${modifier >= 0 ? '+' : ''}${modifier})`;
+                        scoreDisplay.append(scoreEl, modifierEl);
 
+                        const btnContainer = document.createElement('div');
+                        btnContainer.className = 'mt-2';
                         const plusBtn = document.createElement('button');
                         plusBtn.className = 'btn text-sm py-1 px-2 rounded ml-4';
                         plusBtn.innerText = '+';
-                        plusBtn.disabled = score >= 15 || points < pointCost[score + 1] - pointCost[score];
+                        plusBtn.disabled = score >= 15 || points < (pointCost[score + 1] - pointCost[score]);
 
                         const minusBtn = document.createElement('button');
                         minusBtn.className = 'btn text-sm py-1 px-2 rounded ml-2 bg-gray-600';
@@ -2308,9 +2096,11 @@
                         plusBtn.onclick = () => updateScore(ability, 1);
                         minusBtn.onclick = () => updateScore(ability, -1);
                         
-                        container.append(label, scoreEl, modifierEl, plusBtn, minusBtn);
+                        btnContainer.append(minusBtn, plusBtn);
+                        container.append(label, scoreDisplay, btnContainer);
                         abilityScoresContainer.appendChild(container);
                     });
+                     document.getElementById('creator-next-3').disabled = (points !== 0);
                 };
                 
                 const updateScore = (ability, change) => {
@@ -2340,7 +2130,7 @@
                     const div = document.createElement('div');
                     div.className = 'mt-2';
                     const labelEl = document.createElement('label');
-                    labelEl.className = 'font-bold';
+                    labelEl.className = 'font-bold block mb-1';
                     labelEl.innerText = label;
                     const selectEl = document.createElement('select');
                     selectEl.id = id;
@@ -2362,7 +2152,9 @@
                 const race = dndData.races[creatorData.race || document.getElementById('race-select').value];
                 const background = dndData.backgrounds[creatorData.background || document.getElementById('background-select').value] || {languages_choices: 0};
 
-                const numExtra = (race.languages.filter(l => l.includes("extra")).length || 0) + background.languages_choices;
+                const racialBonusLanguages = race.languages.includes("one extra language") ? 1 : 0;
+                const backgroundBonusLanguages = background.languages_choices || 0;
+                const numExtra = racialBonusLanguages + backgroundBonusLanguages;
 
                 if (numExtra > 0) {
                     const header = document.createElement('h4');
@@ -2373,9 +2165,11 @@
                     const grid = document.createElement('div');
                     grid.className = 'checkbox-grid';
                     container.appendChild(grid);
+                    
+                    const existingLanguages = race.languages.toLowerCase();
 
                     dndData.languages.forEach(lang => {
-                        if (!race.languages.includes(lang) || lang.includes("extra")) {
+                        if (!existingLanguages.includes(lang.toLowerCase())) {
                             const label = document.createElement('label');
                             label.className = 'flex items-center space-x-2 p-2 bg-gray-700 rounded';
                             label.innerHTML = `<input type="checkbox" value="${lang}" class="input-field language-checkbox"> <span>${lang}</span>`;
@@ -2399,8 +2193,8 @@
                 const container = document.getElementById('proficiencies-container');
                 container.innerHTML = '';
                 const classData = dndData.classes[creatorData.class];
-                const numChoices = classData.skillChoices.count;
-                const options = classData.skillChoices.options;
+                const numChoices = classData.proficiencies.skills.count;
+                const options = classData.proficiencies.skills.options;
 
                 const header = document.createElement('h4');
                 header.className = 'font-title text-xl mb-2';
@@ -2432,27 +2226,10 @@
             const populateFeats = () => {
                 const container = document.getElementById('feats-container');
                 container.innerHTML = '';
-                const race = creatorData.race;
-                const hasFeat = race === "Human" && creatorData.subrace === "Variant"; // Example for Variant Human
-
-                if (hasFeat) {
-                    const header = document.createElement('h4');
-                    header.className = 'font-title text-xl mb-2';
-                    header.innerText = `Choose 1 Feat:`;
-                    container.appendChild(header);
-
-                    const select = document.createElement('select');
-                    select.id = 'feat-select';
-                    select.className = 'input-field w-full p-2';
-                    dndData.feats.forEach(f => select.add(new Option(f, f)));
-                    container.appendChild(select);
+                // This is a simplified check. A full implementation would check for Variant Human specifically.
+                if (creatorData.race === "Human") {
+                    // Placeholder for Variant Human logic
                 }
-            };
-
-            const populateFeatsAndAbilities = () => {
-                const container = document.getElementById('feats-abilities-container');
-                container.innerHTML = '';
-                // Expand for class-specific abilities/origins if needed beyond subclass.
             };
 
             const populateEquipment = () => {
@@ -2465,25 +2242,26 @@
                 header.innerText = `Choose Starting Equipment:`;
                 container.appendChild(header);
 
-                classData.equipment_choices.forEach(choice => {
+                classData.equipment_choices.forEach((choice, index) => {
                     const group = document.createElement('div');
-                    group.className = 'equipment-choice mb-4';
-                    const choiceHeader = document.createElement('p');
-                    choiceHeader.innerText = 'Choose one:';
-                    group.appendChild(choiceHeader);
-
+                    group.className = 'equipment-choice-group mb-4 p-3 border border-gray-700 rounded';
+                    
                     if (choice.options) {
+                        const choiceHeader = document.createElement('p');
+                        choiceHeader.className = 'font-bold mb-2';
+                        choiceHeader.innerText = 'Choose one:';
+                        group.appendChild(choiceHeader);
                         choice.options.forEach(opt => {
                             const label = document.createElement('label');
                             label.className = 'flex items-center space-x-2';
-                            label.innerHTML = `<input type="radio" name="equip-${choice.options.indexOf(opt)}" value="${opt}" class="input-field"> <span>${opt}</span>`;
+                            label.innerHTML = `<input type="radio" name="equip-${index}" value="${opt}" class="input-field"> <span>${opt}</span>`;
                             group.appendChild(label);
                         });
                     } else if (choice.fixed) {
                         const p = document.createElement('p');
                         p.innerText = choice.fixed;
+                        group.dataset.fixed = choice.fixed;
                         group.appendChild(p);
-                        creatorData.equipment.push(choice.fixed);
                     }
                     container.appendChild(group);
                 });
@@ -2492,63 +2270,81 @@
             const populateSpells = () => {
                 const container = document.getElementById('spells-container');
                 container.innerHTML = '';
+                const classData = dndData.classes[creatorData.class];
                 const classSpells = dndData.spells[creatorData.class];
-                if (classSpells) {
-                    // Cantrips
-                    if(classSpells.cantrips.length > 0) {
-                        const cantripContainer = document.createElement('div');
-                        const cantripHeader = document.createElement('h4');
-                        cantripHeader.className = 'font-title text-xl mb-2';
-                        const numCantrips = creatorData.class === 'Wizard' ? 3 : 2; // Expand per class
-                        cantripHeader.innerText = `Choose ${numCantrips} Cantrips:`;
-                        cantripContainer.appendChild(cantripHeader);
-                        const cantripGrid = document.createElement('div');
-                        cantripGrid.className = 'checkbox-grid';
-                        classSpells.cantrips.forEach(spell => {
-                             const label = document.createElement('label');
-                            label.className = 'flex items-center space-x-2 p-2 bg-gray-700 rounded';
-                            label.innerHTML = `<input type="checkbox" value="${spell}" class="input-field cantrip-checkbox"> <span>${spell}</span>`;
-                            cantripGrid.appendChild(label);
-                        });
-                        cantripContainer.appendChild(cantripGrid);
-                        container.appendChild(cantripContainer);
+                if (!classSpells) return;
 
-                        cantripGrid.addEventListener('change', (e) => {
-                            if (e.target.classList.contains('cantrip-checkbox')) {
-                                const checked = cantripContainer.querySelectorAll('.cantrip-checkbox:checked');
-                                if (checked.length > numCantrips) {
-                                    e.target.checked = false;
-                                    showModal(`You can only select ${numCantrips} cantrips.`);
-                                }
+                // Spells known logic (simplified for level 1)
+                const spellcastingInfo = {
+                    Bard: {cantrips: 2, level1: 4},
+                    Cleric: {cantrips: 3, level1: 'WIS Mod + Level'},
+                    Druid: {cantrips: 2, level1: 'WIS Mod + Level'},
+                    Paladin: {cantrips: 0, level1: 'CHA Mod + 1/2 Level'},
+                    Ranger: {cantrips: 0, level1: 2},
+                    Sorcerer: {cantrips: 4, level1: 2},
+                    Warlock: {cantrips: 2, level1: 2},
+                    Wizard: {cantrips: 3, level1: 6}, // In spellbook, can prepare INT Mod + Level
+                }
+                const info = spellcastingInfo[creatorData.class];
+
+                // Cantrips
+                if(info.cantrips > 0 && classSpells.cantrips && classSpells.cantrips.length > 0) {
+                    const cantripContainer = document.createElement('div');
+                    const cantripHeader = document.createElement('h4');
+                    cantripHeader.className = 'font-title text-xl mb-2';
+                    cantripHeader.innerText = `Choose ${info.cantrips} Cantrips:`;
+                    cantripContainer.appendChild(cantripHeader);
+                    const cantripGrid = document.createElement('div');
+                    cantripGrid.className = 'checkbox-grid';
+                    classSpells.cantrips.forEach(spell => {
+                         const label = document.createElement('label');
+                        label.className = 'flex items-center space-x-2 p-2 bg-gray-700 rounded';
+                        label.innerHTML = `<input type="checkbox" value="${spell}" class="input-field cantrip-checkbox"> <span>${spell}</span>`;
+                        cantripGrid.appendChild(label);
+                    });
+                    cantripContainer.appendChild(cantripGrid);
+                    container.appendChild(cantripContainer);
+
+                    cantripGrid.addEventListener('change', (e) => {
+                        if (e.target.classList.contains('cantrip-checkbox')) {
+                            const checked = cantripContainer.querySelectorAll('.cantrip-checkbox:checked');
+                            if (checked.length > info.cantrips) {
+                                e.target.checked = false;
+                                showModal(`You can only select ${info.cantrips} cantrips.`);
                             }
-                        });
+                        }
+                    });
+                }
+                
+                // Level 1 Spells
+                if(info.level1 && classSpells.level1 && classSpells.level1.length > 0){
+                    const level1Container = document.createElement('div');
+                    const level1Header = document.createElement('h4');
+                    level1Header.className = 'font-title text-xl mb-2';
+                    const numLevel1 = (typeof info.level1 === 'number') ? info.level1 : `your prepared amount`;
+                    level1Header.innerText = `Choose ${numLevel1} 1st-Level Spells:`;
+                    if (creatorData.class === 'Wizard') {
+                        level1Header.innerText = `Choose 6 1st-Level Spells for your Spellbook:`;
                     }
-                    
-                    // Level 1 Spells
-                    if(classSpells.level1.length > 0){
-                        const level1Container = document.createElement('div');
-                        const level1Header = document.createElement('h4');
-                        level1Header.className = 'font-title text-xl mb-2';
-                         const numLevel1 = creatorData.class === 'Wizard' ? 6 : 2; // Expand per class
-                        level1Header.innerText = `Choose ${numLevel1} 1st-Level Spells:`;
-                        level1Container.appendChild(level1Header);
-                        const level1Grid = document.createElement('div');
-                        level1Grid.className = 'checkbox-grid';
-                        classSpells.level1.forEach(spell => {
-                             const label = document.createElement('label');
-                            label.className = 'flex items-center space-x-2 p-2 bg-gray-700 rounded';
-                            label.innerHTML = `<input type="checkbox" value="${spell}" class="input-field level1-spell-checkbox"> <span>${spell}</span>`;
-                            level1Grid.appendChild(label);
-                        });
-                        level1Container.appendChild(level1Grid);
-                        container.appendChild(level1Container);
+                    level1Container.appendChild(level1Header);
+                    const level1Grid = document.createElement('div');
+                    level1Grid.className = 'checkbox-grid';
+                    classSpells.level1.forEach(spell => {
+                         const label = document.createElement('label');
+                        label.className = 'flex items-center space-x-2 p-2 bg-gray-700 rounded';
+                        label.innerHTML = `<input type="checkbox" value="${spell}" class="input-field level1-spell-checkbox"> <span>${spell}</span>`;
+                        level1Grid.appendChild(label);
+                    });
+                    level1Container.appendChild(level1Grid);
+                    container.appendChild(level1Container);
 
+                    if (typeof info.level1 === 'number') {
                         level1Grid.addEventListener('change', (e) => {
                             if (e.target.classList.contains('level1-spell-checkbox')) {
                                 const checked = level1Container.querySelectorAll('.level1-spell-checkbox:checked');
-                                if (checked.length > numLevel1) {
+                                if (checked.length > info.level1) {
                                     e.target.checked = false;
-                                    showModal(`You can only select ${numLevel1} 1st-level spells.`);
+                                    showModal(`You can only select ${info.level1} 1st-level spells.`);
                                 }
                             }
                         });
@@ -2557,8 +2353,6 @@
             };
             
              // --- INITIAL LOAD ---
-            loadCharactersFromStorage();
-            loadMapsFromStorage();
             initCreator(); 
             switchTab('session');
         });
